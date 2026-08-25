@@ -17,7 +17,7 @@
 
     <section id="controls" class="card">
       <span class="label">VIDEO</span><h2>Frame & motion</h2>
-      <p class="small">Choose these settings before selecting your file. Processing starts automatically after the file is checked.</p>
+      <p class="small">Choose settings before selecting your file. Processing starts automatically after the file is checked.</p>
       <div class="grid">
         <label>FPS<select id="fps"><option value="source">Source</option><option value="24">24 FPS</option><option value="30" selected>30 FPS</option><option value="60">60 FPS</option></select></label>
         <label>Resolution<select id="resolution"><option value="source" selected>Source</option><option value="3840:2160">4K · 3840×2160</option><option value="2560:1440">1440p · 2560×1440</option><option value="1920:1080">1080p · 1920×1080</option><option value="1280:720">720p · 1280×720</option><option value="854:480">480p · 854×480</option></select></label>
@@ -25,8 +25,8 @@
         <label>Audio<select id="audioMode"><option value="keep" selected>Keep audio</option><option value="mute">Remove audio</option></select></label>
         <label>Rotation<select id="rotation"><option value="0" selected>None</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
         <label>Mirror<select id="mirror"><option value="none" selected>None</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></label>
-        <label>Brightness<input id="brightness" type="range" min="-0.5" max="0.5" step="0.05" value="0"></label>
-        <label>Contrast<input id="contrast" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+        <label>Brightness<input id="brightness" type="range" min="-1" max="1" step="0.05" value="0"><span class="range-value" id="brightnessValue">0</span></label>
+        <label>Contrast<input id="contrast" type="range" min="0" max="3" step="0.05" value="1"><span class="range-value" id="contrastValue">1</span></label>
       </div>
     </section>
 
@@ -64,15 +64,8 @@
     </section>
 
     <section id="previewCard" class="preview card hidden"><video id="preview" controls playsinline preload="metadata"></video></section>
-
     <section id="actions" class="actions hidden"><button id="process" type="button" class="primary">Process again</button><button id="clear" type="button" class="secondary">Clear</button></section>
-
-    <section id="progressWrap" class="progress-card hidden">
-      <div class="progress-top"><strong id="progressTitle">Preparing</strong><strong id="progressPercent">0%</strong></div>
-      <div class="progress"><div id="progress"></div></div>
-      <div class="progress-steps"><span id="step1">1 · Read</span><span id="step2">2 · Encode</span><span id="step3">3 · Finish</span></div>
-    </section>
-
+    <section id="progressWrap" class="progress-card hidden"><div class="progress-top"><strong id="progressTitle">Preparing</strong><strong id="progressPercent">0%</strong></div><div class="progress"><div id="progress"></div></div><div class="progress-steps"><span id="step1">1 · Read</span><span id="step2">2 · Encode</span><span id="step3">3 · Finish</span></div></section>
     <p id="status" class="status">Set your options, then choose a file.</p>
     <a id="download" class="download hidden">Download modified file</a>
     <footer><span>LOCAL</span><span>FFMPEG.WASM</span><span>NODE 24</span></footer>
