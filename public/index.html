@@ -51,7 +51,7 @@
 
     <section id="watermarkControls" class="card hidden">
       <span class="label">WATERMARK</span><h2>Fixed overlay removal</h2>
-      <p class="small">Choose the area containing a fixed overlay. Processing uses a real video filter.</p>
+      <p class="small">This uses FFmpeg's real delogo filter for a fixed-position overlay.</p>
       <div class="grid">
         <label>Position<select id="watermarkPreset"><option value="none">Off</option><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option><option value="center">Center</option></select></label>
         <label>Box size<select id="watermarkSize"><option value="8">Small · 8%</option><option value="12" selected>Medium · 12%</option><option value="18">Large · 18%</option><option value="25">XL · 25%</option></select></label>
@@ -73,8 +73,8 @@
 
     <p id="status" class="status">Waiting for a file.</p>
     <a id="download" class="download hidden">Download result</a>
-    <footer><span>LOCAL</span><span>FFMPEG</span><span>NODE 24</span></footer>
+    <footer><span>LOCAL</span><span>FFMPEG.WASM</span><span>NODE 24</span></footer>
   </main>
-  <script src="/app.js" defer></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
