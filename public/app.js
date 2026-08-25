@@ -2,7 +2,7 @@ const fileInput = document.querySelector('#file');
 const drop = document.querySelector('#drop');
 const info = document.querySelector('#info');
 const actions = document.querySelector('#actions');
-const patchButton = document.querySelector('#patch');
+const patchButton = document.querySelector('#process') || document.querySelector('#patch');
 const clearButton = document.querySelector('#clear');
 const download = document.querySelector('#download');
 const status = document.querySelector('#status');
@@ -12,6 +12,11 @@ let selectedBytes = null;
 let outputUrl = null;
 
 const get = (id) => document.getElementById(id);
+
+function setText(id, value) {
+  const element = get(id);
+  if (element) element.textContent = value;
+}
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -94,15 +99,7 @@ function inspect(bytes) {
   const moov = top.find((box) => box.type === 'moov');
   if (!moov) throw new Error('This MP4 has no readable moov atom.');
 
-  const result = {
-    width: null,
-    height: null,
-    fps: null,
-    codec: null,
-    duration: null,
-    moovAt: moov.start
-  };
-
+  const result = { width: null, height: null, fps: null, codec: null, duration: null, moovAt: moov.start };
   const mvhd = child(bytes, moov, 'mvhd');
   if (mvhd) result.duration = duration(bytes, mvhd);
 
@@ -116,7 +113,6 @@ function inspect(bytes) {
     const minf = child(bytes, mdia, 'minf');
     const mdhd = child(bytes, mdia, 'mdhd');
     if (!minf) continue;
-
     const stbl = child(bytes, minf, 'stbl');
     if (!stbl) continue;
 
@@ -144,8 +140,10 @@ function inspect(bytes) {
 
       for (let i = 0; i < count; i++) {
         const entry = sttsBase + 8 + i * 8;
-        samples += readU32(view, entry);
-        ticks += readU32(view, entry + 4) * readU32(view, entry);
+        const sampleCount = readU32(view, entry);
+        const sampleDelta = readU32(view, entry + 4);
+        samples += sampleCount;
+        ticks += sampleDelta * sampleCount;
       }
 
       if (timescale && ticks) result.fps = timescale * samples / ticks;
@@ -169,7 +167,7 @@ function reset() {
   actions.classList.add('hidden');
   download.classList.add('hidden');
   download.removeAttribute('href');
-  status.textContent = '';
+  status.textContent = 'Waiting for a file.';
   if (outputUrl) {
     URL.revokeObjectURL(outputUrl);
     outputUrl = null;
@@ -186,17 +184,17 @@ async function loadFile(file) {
     selectedBytes = new Uint8Array(await file.arrayBuffer());
     const meta = inspect(selectedBytes);
 
-    get('name').textContent = file.name;
-    get('size').textContent = formatBytes(file.size);
-    get('resolution').textContent = meta.width && meta.height ? `${meta.width} × ${meta.height}` : '—';
-    get('duration').textContent = Number.isFinite(meta.duration) ? `${Math.floor(meta.duration / 60)}:${String(Math.round(meta.duration % 60)).padStart(2, '0')}` : '—';
-    get('fps').textContent = Number.isFinite(meta.fps) ? `${meta.fps.toFixed(3)} fps` : '—';
-    get('codec').textContent = codecName(meta.codec);
-    get('container').textContent = `MP4 · moov @ ${meta.moovAt.toLocaleString()}`;
+    setText('name', file.name);
+    setText('size', formatBytes(file.size));
+    setText('resolution', meta.width && meta.height ? `${meta.width} × ${meta.height}` : '—');
+    setText('duration', Number.isFinite(meta.duration) ? `${Math.floor(meta.duration / 60)}:${String(Math.round(meta.duration % 60)).padStart(2, '0')}` : '—');
+    setText('fps', Number.isFinite(meta.fps) ? `${meta.fps.toFixed(3)} fps` : '—');
+    setText('codec', codecName(meta.codec));
+    setText('container', `MP4 · moov @ ${meta.moovAt.toLocaleString()}`);
 
     info.classList.remove('hidden');
     actions.classList.remove('hidden');
-    status.textContent = 'Video loaded. Choose Patch MP4 to create the output file.';
+    status.textContent = 'Video loaded. Choose Process file to create the output.';
   } catch (error) {
     reset();
     status.textContent = error instanceof Error ? error.message : 'Could not read this MP4.';
@@ -214,7 +212,6 @@ drop.addEventListener('dragover', (event) => {
 });
 
 drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
-
 drop.addEventListener('drop', (event) => {
   event.preventDefault();
   drop.classList.remove('drag');
@@ -222,23 +219,25 @@ drop.addEventListener('drop', (event) => {
   if (file) loadFile(file);
 });
 
-patchButton.addEventListener('click', () => {
-  if (!selectedFile || !selectedBytes) return;
+if (patchButton) {
+  patchButton.addEventListener('click', () => {
+    if (!selectedFile || !selectedBytes) return;
 
-  status.textContent = 'Preparing MP4…';
-  patchButton.disabled = true;
+    status.textContent = 'Preparing MP4…';
+    patchButton.disabled = true;
 
-  try {
-    const blob = new Blob([selectedBytes], { type: 'video/mp4' });
-    if (outputUrl) URL.revokeObjectURL(outputUrl);
-    outputUrl = URL.createObjectURL(blob);
-    download.href = outputUrl;
-    download.download = selectedFile.name.replace(/\.mp4$/i, '') + '_patched.mp4';
-    download.classList.remove('hidden');
-    status.textContent = 'Ready. Download the processed MP4 below.';
-  } finally {
-    patchButton.disabled = false;
-  }
-});
+    try {
+      const blob = new Blob([selectedBytes], { type: 'video/mp4' });
+      if (outputUrl) URL.revokeObjectURL(outputUrl);
+      outputUrl = URL.createObjectURL(blob);
+      download.href = outputUrl;
+      download.download = selectedFile.name.replace(/\.mp4$/i, '') + '_processed.mp4';
+      download.classList.remove('hidden');
+      status.textContent = 'Ready. Download the processed MP4 below.';
+    } finally {
+      patchButton.disabled = false;
+    }
+  });
+}
 
 clearButton.addEventListener('click', reset);
