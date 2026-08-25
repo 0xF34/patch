@@ -80,7 +80,7 @@ async function loadEngine() {
   const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
   await ffmpeg.load({
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm`)
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm')
   });
   engineReady = true;
 }
@@ -108,7 +108,7 @@ async function inspect(file) {
       $('video').textContent = width ? `${width} × ${height}` : '—';
       $('audio').textContent = mediaKind === 'audio' ? 'Audio source' : 'Present if available';
       URL.revokeObjectURL(url);
-      resolve({ width, height, duration: element.duration });
+      resolve();
     };
     element.onerror = () => {
       URL.revokeObjectURL(url);
@@ -124,7 +124,7 @@ async function loadFile(file) {
   const audio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|flac)$/.test(name);
   const video = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv)$/.test(name);
   if (!audio && !video) {
-    status.textContent = 'Choose MP4, MOV, WebM, MKV, MP3, WAV, M4A, AAC, OGG, or another supported media file.';
+    status.textContent = 'Choose a supported video or audio file.';
     return;
   }
 
@@ -140,7 +140,7 @@ async function loadFile(file) {
   checkCard.classList.remove('hidden');
   progressWrap.classList.add('hidden');
   setCheck('Reading file…', 15);
-  status.textContent = 'Checking container and media metadata…';
+  status.textContent = 'Checking media metadata…';
 
   clearInterval(checkTimer);
   let p = 15;
@@ -153,10 +153,10 @@ async function loadFile(file) {
     await inspect(file);
     clearInterval(checkTimer);
     setCheck('File checked', 100);
-    await new Promise((r) => setTimeout(r, 180));
-
+    await new Promise((resolve) => setTimeout(resolve, 180));
     info.classList.remove('hidden');
     actions.classList.remove('hidden');
+
     if (video) {
       previewCard.classList.remove('hidden');
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -164,6 +164,7 @@ async function loadFile(file) {
       preview.src = previewUrl;
       preview.load();
     }
+
     checkCard.classList.add('hidden');
     status.textContent = 'Ready — choose settings, then Process file.';
   } catch (error) {
@@ -187,8 +188,6 @@ function videoFilters() {
   const band = $('watermarkBand').value;
 
   if (preset !== 'none') {
-    // The delogo rectangle is proportional to the input width. The filter
-    // accepts expressions, so it adapts to different resolutions.
     const w = `iw*${size}`;
     const h = `ih*${size * 0.45}`;
     const x = preset.includes('right') ? `iw-${w}` : preset.includes('left') ? '0' : `(iw-${w})/2`;
