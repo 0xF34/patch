@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MP4 Container Tool</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main class="shell">
@@ -15,8 +15,8 @@
     </header>
 
     <section id="drop" class="drop">
-      <input id="file" type="file" accept=".mp4,video/mp4" hidden>
-      <button id="choose" class="primary">Choose MP4</button>
+      <input id="file" type="file" accept="video/mp4,.mp4" hidden>
+      <button id="choose" type="button" class="primary">Choose MP4</button>
       <p id="dropText">or drop a video here</p>
       <p class="small">The patcher keeps the original video/audio samples and timing metadata. It only reorganizes the MP4 container for fast start when possible.</p>
     </section>
@@ -32,8 +32,8 @@
     </section>
 
     <section id="actions" class="actions hidden">
-      <button id="patch" class="primary">Patch MP4</button>
-      <button id="clear" class="secondary">Clear</button>
+      <button id="patch" type="button" class="primary">Patch MP4</button>
+      <button id="clear" type="button" class="secondary">Clear</button>
     </section>
 
     <p id="status" class="status"></p>
