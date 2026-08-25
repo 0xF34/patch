@@ -2,24 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0e12">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
   <title>Media Forge</title>
 </head>
 <body>
   <main class="shell">
     <header class="hero">
-      <div class="badge">LOCAL MEDIA FORGE</div>
-      <h1>Make your video<br><span>actually change.</span></h1>
-      <p class="muted">Real browser-side FFmpeg processing. No upload, no fake metadata edits.</p>
+      <div class="badge">MEDIA FORGE</div>
+      <h1>Make media<br><span>actually change.</span></h1>
+      <p class="muted">Local FFmpeg processing. Your file stays in this browser.</p>
     </header>
 
     <section class="drop" id="drop">
-      <div class="drop-icon">↑</div>
+      <div class="drop-icon">+</div>
       <input id="file" class="file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg">
       <label for="file" class="primary file-button">Choose media</label>
-      <p id="dropText">or drop a video or audio file here</p>
-      <p class="small">Everything is processed locally in this browser.</p>
+      <p>or drop a video or audio file here</p>
+      <p class="small">The file is processed locally. Nothing is uploaded to this app.</p>
+    </section>
+
+    <section id="checkCard" class="progress-card hidden">
+      <div class="progress-top"><strong id="checkTitle">Checking file…</strong><strong id="checkPercent">0%</strong></div>
+      <div class="progress"><div id="checkProgress"></div></div>
     </section>
 
     <section id="info" class="card hidden">
@@ -35,29 +40,39 @@
     <section id="previewCard" class="preview card hidden"><video id="preview" controls playsinline preload="metadata"></video></section>
 
     <section id="controls" class="card hidden">
-      <span class="label">VIDEO</span><h2>Picture & motion</h2>
+      <span class="label">VIDEO</span><h2>Frame & motion</h2>
       <div class="grid">
-        <label>FPS<select id="fps"><option value="source">Keep source FPS</option><option value="24">24 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
-        <label>Resolution<select id="resolution"><option value="source">Keep source</option><option value="3840:2160">4K · 3840×2160</option><option value="2560:1440">1440p · 2560×1440</option><option value="1920:1080">1080p · 1920×1080</option><option value="1280:720">720p · 1280×720</option><option value="854:480">480p · 854×480</option></select></label>
-        <label>Quality<select id="quality"><option value="18">High</option><option value="22" selected>Balanced</option><option value="27">Smaller</option><option value="32">Smallest</option></select></label>
+        <label>FPS<select id="fps"><option value="source">Source</option><option value="24">24 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+        <label>Resolution<select id="resolution"><option value="source">Source</option><option value="3840:2160">4K · 3840×2160</option><option value="2560:1440">1440p · 2560×1440</option><option value="1920:1080">1080p · 1920×1080</option><option value="1280:720">720p · 1280×720</option><option value="854:480">480p · 854×480</option></select></label>
+        <label>Quality<select id="quality"><option value="18">High</option><option value="22" selected>Balanced</option><option value="27">Small</option><option value="32">Smallest</option></select></label>
         <label>Audio<select id="audioMode"><option value="keep">Keep audio</option><option value="mute">Remove audio</option></select></label>
         <label>Rotation<select id="rotation"><option value="0">None</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
         <label>Mirror<select id="mirror"><option value="none">None</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></label>
         <label>Brightness<input id="brightness" type="range" min="-0.5" max="0.5" step="0.05" value="0"></label>
         <label>Contrast<input id="contrast" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
       </div>
-      <p class="small">These controls perform real frame-level FFmpeg conversions.</p>
+    </section>
+
+    <section id="watermarkControls" class="card hidden">
+      <span class="label">WATERMARK</span><h2>Remove a fixed overlay</h2>
+      <p class="small">Choose the corner containing a fixed watermark. This uses FFmpeg's real <code>delogo</code> filter; it does not claim to reconstruct moving content.</p>
+      <div class="grid">
+        <label>Position<select id="watermarkPreset">
+          <option value="none">Off</option>
+          <option value="top-left">Top left</option>
+          <option value="top-right">Top right</option>
+          <option value="bottom-left">Bottom left</option>
+          <option value="bottom-right">Bottom right</option>
+          <option value="center">Center</option>
+        </select></label>
+        <label>Box size<select id="watermarkSize"><option value="8">Small · 8%</option><option value="12" selected>Medium · 12%</option><option value="18">Large · 18%</option><option value="25">XL · 25%</option></select></label>
+        <label>Edge feather<select id="watermarkBand"><option value="2">2 px</option><option value="5" selected>5 px</option><option value="10">10 px</option></select></label>
+      </div>
     </section>
 
     <section id="audioControls" class="card hidden">
       <span class="label">AUDIO</span><h2>MP3 output</h2>
       <div class="grid"><label>Bitrate<select id="bitrate"><option value="128k">128 kbps</option><option value="192k" selected>192 kbps</option><option value="256k">256 kbps</option><option value="320k">320 kbps</option></select></label></div>
-    </section>
-
-    <section id="cropControls" class="card hidden">
-      <span class="label">CROP</span><h2>Frame crop</h2>
-      <div class="grid"><label>Crop edges<select id="cropPreset"><option value="none">No crop</option><option value="center">Center crop · 90%</option><option value="bottom">Trim bottom · 8%</option><option value="top">Trim top · 8%</option><option value="left">Trim left · 8%</option><option value="right">Trim right · 8%</option></select></label></div>
-      <p class="small">Cropping can remove an edge overlay from footage you own. There is no automatic watermark remover.</p>
     </section>
 
     <section id="actions" class="actions hidden"><button id="process" type="button" class="primary">Process file</button><button id="clear" type="button" class="secondary">Clear</button></section>
@@ -67,9 +82,10 @@
       <div class="progress"><div id="progress"></div></div>
       <div class="progress-steps"><span id="step1">1 · Read</span><span id="step2">2 · Encode</span><span id="step3">3 · Finish</span></div>
     </section>
+
     <p id="status" class="status">Waiting for a file.</p>
     <a id="download" class="download hidden">Download result</a>
-    <footer><span>Local processing</span><span>FFmpeg WebAssembly</span><span>Node 24</span></footer>
+    <footer><span>LOCAL</span><span>FFMPEG</span><span>NODE 24</span></footer>
   </main>
   <script type="module" src="/src/app.js"></script>
 </body>
