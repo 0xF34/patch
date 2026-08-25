@@ -30,6 +30,8 @@ let sourceUrl = null;
 let sourceIsVideo = false;
 let sourceIsAudio = false;
 let processing = false;
+let previewOverlay = null;
+let previewBadge = null;
 
 function setText(id, value) {
   const node = $(id);
@@ -64,7 +66,7 @@ function formatDuration(seconds) {
 function setProgress(percent, title) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   show(progressWrap);
-  progressBar.style.width = `${value}%`;
+  if (progressBar) progressBar.style.width = `${value}%`;
   setText('progressPercent', `${value}%`);
   setText('progressTitle', title);
 }
@@ -89,6 +91,142 @@ function extensionFor(file) {
   return ['mp4', 'mov', 'webm', 'mkv'].includes(ext) ? ext : 'mp4';
 }
 
+function ensurePreviewLayer() {
+  if (!previewCard || !preview) return;
+  if (!previewCard.style.position) previewCard.style.position = 'relative';
+
+  if (!previewOverlay) {
+    previewOverlay = document.createElement('div');
+    previewOverlay.setAttribute('aria-hidden', 'true');
+    Object.assign(previewOverlay.style, {
+      position: 'absolute',
+      pointerEvents: 'none',
+      display: 'none',
+      zIndex: '4',
+      borderRadius: '10px',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      background: 'rgba(0,0,0,.18)',
+      border: '1px solid rgba(255,255,255,.12)',
+      boxSizing: 'border-box'
+    });
+    previewCard.appendChild(previewOverlay);
+  }
+
+  if (!previewBadge) {
+    previewBadge = document.createElement('div');
+    previewBadge.setAttribute('aria-hidden', 'true');
+    Object.assign(previewBadge.style, {
+      position: 'absolute',
+      left: '14px',
+      top: '14px',
+      zIndex: '5',
+      pointerEvents: 'none',
+      padding: '7px 10px',
+      borderRadius: '999px',
+      background: 'rgba(0,0,0,.72)',
+      border: '1px solid rgba(255,255,255,.16)',
+      color: '#fff',
+      font: '600 12px/1 -apple-system,BlinkMacSystemFont,sans-serif',
+      letterSpacing: '.02em',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)'
+    });
+    previewCard.appendChild(previewBadge);
+  }
+}
+
+function parseResolution(value) {
+  if (!value || value === 'source') return null;
+  const [w, h] = value.split(':').map(Number);
+  return Number.isFinite(w) && Number.isFinite(h) ? { w, h } : null;
+}
+
+function updateLivePreview() {
+  if (!sourceIsVideo || !selectedFile || !preview) return;
+  ensurePreviewLayer();
+
+  const fps = $('fps')?.value || 'source';
+  const resolution = $('resolution')?.value || 'source';
+  const brightness = Number($('brightness')?.value || 0);
+  const contrast = Number($('contrast')?.value || 1);
+  const rotation = $('rotation')?.value || '0';
+  const mirror = $('mirror')?.value || 'none';
+  const preset = $('watermarkPreset')?.value || 'none';
+  const size = Number($('watermarkSize')?.value || 12);
+  const target = parseResolution(resolution);
+
+  // CSS is used for the live preview so changes appear immediately without
+  // waiting for FFmpeg to re-encode the whole file. The downloaded file still
+  // uses the real FFmpeg filters when Process file is run.
+  const filters = [];
+  if (brightness !== 0 || contrast !== 1) {
+    filters.push(`brightness(${1 + brightness})`, `contrast(${contrast})`);
+  }
+  preview.style.filter = filters.length ? filters.join(' ') : 'none';
+
+  let transform = '';
+  if (rotation === '90') transform += 'rotate(90deg)';
+  if (rotation === '180') transform += 'rotate(180deg)';
+  if (rotation === '270') transform += 'rotate(270deg)';
+  if (mirror === 'horizontal') transform += ' scaleX(-1)';
+  if (mirror === 'vertical') transform += ' scaleY(-1)';
+  preview.style.transform = transform.trim() || 'none';
+  preview.style.transformOrigin = 'center center';
+  preview.style.transition = 'filter .12s ease, transform .12s ease';
+
+  // Make the preview frame reflect the selected output dimensions/aspect.
+  if (target) {
+    previewCard.style.aspectRatio = `${target.w} / ${target.h}`;
+    preview.style.width = '100%';
+    preview.style.height = '100%';
+    preview.style.objectFit = 'contain';
+  } else {
+    previewCard.style.aspectRatio = '';
+    preview.style.width = '100%';
+    preview.style.height = 'auto';
+    preview.style.objectFit = 'contain';
+  }
+
+  if (previewBadge) {
+    const fpsText = fps === 'source' ? 'Source FPS' : `${fps} FPS`;
+    const resText = target ? `${target.w}×${target.h}` : 'Source resolution';
+    previewBadge.textContent = `LIVE PREVIEW · ${resText} · ${fpsText}`;
+  }
+
+  if (previewOverlay) {
+    if (preset === 'none') {
+      previewOverlay.style.display = 'none';
+    } else {
+      previewOverlay.style.display = 'block';
+      const horizontal = preset.includes('right') ? 'right' : preset.includes('left') ? 'left' : 'center';
+      const vertical = preset.includes('bottom') ? 'bottom' : preset.includes('top') ? 'top' : 'center';
+      const boxW = `${Math.max(8, Math.min(35, size * 1.8))}%`;
+      const boxH = `${Math.max(6, Math.min(30, size * 1.15))}%`;
+      previewOverlay.style.width = boxW;
+      previewOverlay.style.height = boxH;
+      previewOverlay.style.left = horizontal === 'center' ? '50%' : horizontal === 'left' ? '2%' : 'auto';
+      previewOverlay.style.right = horizontal === 'right' ? '2%' : 'auto';
+      previewOverlay.style.top = vertical === 'center' ? '50%' : vertical === 'top' ? '2%' : 'auto';
+      previewOverlay.style.bottom = vertical === 'bottom' ? '2%' : 'auto';
+      previewOverlay.style.transform = 'translate(-50%, -50%)';
+      if (horizontal !== 'center') previewOverlay.style.transform = vertical === 'center' ? 'translateY(-50%)' : 'none';
+      if (vertical !== 'center') previewOverlay.style.transform = horizontal === 'center' ? 'translateX(-50%)' : 'none';
+      if (horizontal === 'center' && vertical === 'center') previewOverlay.style.transform = 'translate(-50%, -50%)';
+    }
+  }
+}
+
+function attachLivePreviewListeners() {
+  ['fps', 'resolution', 'quality', 'audioMode', 'rotation', 'mirror', 'brightness', 'contrast', 'watermarkPreset', 'watermarkSize', 'bitrate']
+    .forEach((id) => {
+      const node = $(id);
+      if (!node) return;
+      node.addEventListener('input', updateLivePreview);
+      node.addEventListener('change', updateLivePreview);
+    });
+}
+
 function reset() {
   if (sourceUrl) URL.revokeObjectURL(sourceUrl);
   if (outputUrl) URL.revokeObjectURL(outputUrl);
@@ -101,6 +239,11 @@ function reset() {
   fileInput.value = '';
   preview.removeAttribute('src');
   preview.load();
+  preview.style.filter = 'none';
+  preview.style.transform = 'none';
+  previewCard.style.aspectRatio = '';
+  if (previewOverlay) previewOverlay.style.display = 'none';
+  if (previewBadge) previewBadge.textContent = '';
   hide(info);
   hide(previewCard);
   hide(actions);
@@ -119,11 +262,7 @@ async function readMediaMetadata(file) {
 
   return new Promise((resolve, reject) => {
     media.onloadedmetadata = () => {
-      const result = {
-        duration: media.duration,
-        width: media.videoWidth || 0,
-        height: media.videoHeight || 0
-      };
+      const result = { duration: media.duration, width: media.videoWidth || 0, height: media.videoHeight || 0 };
       URL.revokeObjectURL(url);
       resolve(result);
     };
@@ -161,6 +300,8 @@ async function loadFile(file) {
       preview.src = sourceUrl;
       show(previewCard);
       hide(audioControls);
+      ensurePreviewLayer();
+      updateLivePreview();
     } else {
       hide(previewCard);
       hide(watermarkControls);
@@ -170,8 +311,7 @@ async function loadFile(file) {
 
     show(info);
     show(actions);
-    setText('status', 'Starting automatic processing with your selected settings…');
-
+    setText('status', 'Preview updated live. Starting automatic processing with your selected settings…');
     await processFile();
   } catch (error) {
     reset();
@@ -196,12 +336,8 @@ async function ensureFFmpeg() {
       setText('status', `Encoding… ${Math.round(p * 100)}%`);
     });
 
-    ffmpeg.on('log', ({ message }) => {
-      if (message) console.debug('[FFmpeg]', message);
-    });
+    ffmpeg.on('log', ({ message }) => { if (message) console.debug('[FFmpeg]', message); });
 
-    // Single-thread @ffmpeg/core does not need a workerURL. Passing one here
-    // can leave Safari/iOS waiting for a worker that does not exist.
     const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
     const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
     const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
@@ -210,11 +346,7 @@ async function ensureFFmpeg() {
     setProgress(15, 'Encoder ready');
   })();
 
-  try {
-    await ffmpegLoading;
-  } finally {
-    ffmpegLoading = null;
-  }
+  try { await ffmpegLoading; } finally { ffmpegLoading = null; }
 }
 
 function buildVideoFilter(width, height) {
@@ -248,13 +380,9 @@ function buildVideoFilter(width, height) {
     let y = margin;
     if (preset.includes('right')) x = width - w - margin;
     if (preset.includes('bottom')) y = height - h - margin;
-    if (preset === 'center') {
-      x = Math.round((width - w) / 2);
-      y = Math.round((height - h) / 2);
-    }
+    if (preset === 'center') { x = Math.round((width - w) / 2); y = Math.round((height - h) / 2); }
     filters.push(`delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0`);
   }
-
   return filters.join(',');
 }
 
@@ -263,7 +391,6 @@ async function processVideo() {
   const input = `input.${ext}`;
   const output = 'output.mp4';
   await ffmpeg.writeFile(input, await fetchFile(selectedFile));
-
   const meta = await readMediaMetadata(selectedFile);
   const filter = buildVideoFilter(meta.width || 1280, meta.height || 720);
   const args = ['-i', input];
@@ -272,7 +399,6 @@ async function processVideo() {
   if (($('audioMode')?.value || 'keep') === 'mute') args.push('-an');
   else args.push('-c:a', 'aac', '-b:a', '160k');
   args.push('-movflags', '+faststart', output);
-
   const code = await ffmpeg.exec(args);
   if (code !== 0) throw new Error('FFmpeg could not encode this video.');
   return output;
@@ -322,9 +448,7 @@ async function processFile() {
   } finally {
     processing = false;
     processButton.disabled = false;
-    for (const name of [
-      'input.mp4','input.mov','input.webm','input.mkv','input.mp3','input.wav','input.m4a','input.aac','input.ogg','output.mp4','output.mp3'
-    ]) {
+    for (const name of ['input.mp4','input.mov','input.webm','input.mkv','input.mp3','input.wav','input.m4a','input.aac','input.ogg','output.mp4','output.mp3']) {
       try { await ffmpeg.deleteFile(name); } catch {}
     }
   }
@@ -335,10 +459,7 @@ fileInput.addEventListener('change', (event) => {
   if (file) loadFile(file);
 });
 
-drop.addEventListener('dragover', (event) => {
-  event.preventDefault();
-  drop.classList.add('drag');
-});
+drop.addEventListener('dragover', (event) => { event.preventDefault(); drop.classList.add('drag'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
 drop.addEventListener('drop', (event) => {
   event.preventDefault();
@@ -349,3 +470,4 @@ drop.addEventListener('drop', (event) => {
 
 processButton.addEventListener('click', processFile);
 clearButton.addEventListener('click', reset);
+attachLivePreviewListeners();
