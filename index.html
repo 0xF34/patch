@@ -3,100 +3,73 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d1013">
-  <title>Media Tool</title>
+  <meta name="theme-color" content="#0b0e12">
+  <title>Media Forge</title>
 </head>
 <body>
   <main class="shell">
-    <header>
-      <p class="eyebrow">LOCAL MEDIA TOOL</p>
-      <h1>Video & audio tools</h1>
-      <p class="muted">Pick a file from your device. Processing runs in your browser.</p>
+    <header class="hero">
+      <div class="badge">LOCAL MEDIA FORGE</div>
+      <h1>Make your video<br><span>actually change.</span></h1>
+      <p class="muted">Real browser-side FFmpeg processing. No upload, no fake metadata edits.</p>
     </header>
 
     <section class="drop" id="drop">
+      <div class="drop-icon">↑</div>
       <input id="file" class="file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg">
       <label for="file" class="primary file-button">Choose media</label>
-      <p>or drop a video or audio file here</p>
-      <p class="small">Nothing is uploaded to this site.</p>
+      <p id="dropText">or drop a video or audio file here</p>
+      <p class="small">Everything is processed locally in this browser.</p>
     </section>
 
     <section id="info" class="card hidden">
-      <div class="row"><span>File</span><strong id="name">—</strong></div>
-      <div class="row"><span>Size</span><strong id="size">—</strong></div>
-      <div class="row"><span>Type</span><strong id="type">—</strong></div>
-      <div class="row"><span>Duration</span><strong id="duration">—</strong></div>
-      <div class="row"><span>Video</span><strong id="video">—</strong></div>
-      <div class="row"><span>Audio</span><strong id="audio">—</strong></div>
+      <div class="card-head"><div><span class="label">SOURCE</span><h2 id="name">—</h2></div><span id="type" class="pill">—</span></div>
+      <div class="stats">
+        <div><span>Size</span><strong id="size">—</strong></div>
+        <div><span>Duration</span><strong id="duration">—</strong></div>
+        <div><span>Video</span><strong id="video">—</strong></div>
+        <div><span>Audio</span><strong id="audio">—</strong></div>
+      </div>
     </section>
 
+    <section id="previewCard" class="preview card hidden"><video id="preview" controls playsinline preload="metadata"></video></section>
+
     <section id="controls" class="card hidden">
-      <h2>Video settings</h2>
+      <span class="label">VIDEO</span><h2>Picture & motion</h2>
       <div class="grid">
-        <label>FPS
-          <select id="fps">
-            <option value="source">Keep source FPS</option>
-            <option value="24">24</option>
-            <option value="30">30</option>
-            <option value="60">60</option>
-          </select>
-        </label>
-        <label>Resolution
-          <select id="resolution">
-            <option value="source">Keep source resolution</option>
-            <option value="3840:2160">3840 × 2160</option>
-            <option value="2560:1440">2560 × 1440</option>
-            <option value="1920:1080">1920 × 1080</option>
-            <option value="1280:720">1280 × 720</option>
-            <option value="854:480">854 × 480</option>
-          </select>
-        </label>
-        <label>Quality
-          <select id="quality">
-            <option value="18">High</option>
-            <option value="22" selected>Balanced</option>
-            <option value="27">Smaller file</option>
-            <option value="32">Smallest</option>
-          </select>
-        </label>
-        <label>Audio
-          <select id="audioMode">
-            <option value="keep">Keep audio</option>
-            <option value="mute">Remove audio</option>
-          </select>
-        </label>
+        <label>FPS<select id="fps"><option value="source">Keep source FPS</option><option value="24">24 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+        <label>Resolution<select id="resolution"><option value="source">Keep source</option><option value="3840:2160">4K · 3840×2160</option><option value="2560:1440">1440p · 2560×1440</option><option value="1920:1080">1080p · 1920×1080</option><option value="1280:720">720p · 1280×720</option><option value="854:480">480p · 854×480</option></select></label>
+        <label>Quality<select id="quality"><option value="18">High</option><option value="22" selected>Balanced</option><option value="27">Smaller</option><option value="32">Smallest</option></select></label>
+        <label>Audio<select id="audioMode"><option value="keep">Keep audio</option><option value="mute">Remove audio</option></select></label>
+        <label>Rotation<select id="rotation"><option value="0">None</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+        <label>Mirror<select id="mirror"><option value="none">None</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></label>
+        <label>Brightness<input id="brightness" type="range" min="-0.5" max="0.5" step="0.05" value="0"></label>
+        <label>Contrast<input id="contrast" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
       </div>
-      <p class="small">FPS, resolution and quality are real FFmpeg conversions. They may take a while on an iPhone.</p>
+      <p class="small">These controls perform real frame-level FFmpeg conversions.</p>
     </section>
 
     <section id="audioControls" class="card hidden">
-      <h2>Audio settings</h2>
-      <div class="grid">
-        <label>MP3 bitrate
-          <select id="bitrate">
-            <option value="128k">128 kbps</option>
-            <option value="192k" selected>192 kbps</option>
-            <option value="256k">256 kbps</option>
-            <option value="320k">320 kbps</option>
-          </select>
-        </label>
-      </div>
+      <span class="label">AUDIO</span><h2>MP3 output</h2>
+      <div class="grid"><label>Bitrate<select id="bitrate"><option value="128k">128 kbps</option><option value="192k" selected>192 kbps</option><option value="256k">256 kbps</option><option value="320k">320 kbps</option></select></label></div>
     </section>
 
-    <section id="actions" class="actions hidden">
-      <button id="process" type="button" class="primary">Process file</button>
-      <button id="clear" type="button" class="secondary">Clear</button>
+    <section id="cropControls" class="card hidden">
+      <span class="label">CROP</span><h2>Frame crop</h2>
+      <div class="grid"><label>Crop edges<select id="cropPreset"><option value="none">No crop</option><option value="center">Center crop · 90%</option><option value="bottom">Trim bottom · 8%</option><option value="top">Trim top · 8%</option><option value="left">Trim left · 8%</option><option value="right">Trim right · 8%</option></select></label></div>
+      <p class="small">Cropping can remove an edge overlay from footage you own. There is no automatic watermark remover.</p>
     </section>
 
-    <div id="progressWrap" class="progress hidden"><div id="progress"></div></div>
+    <section id="actions" class="actions hidden"><button id="process" type="button" class="primary">Process file</button><button id="clear" type="button" class="secondary">Clear</button></section>
+
+    <section id="progressWrap" class="progress-card hidden">
+      <div class="progress-top"><strong id="progressTitle">Preparing</strong><strong id="progressPercent">0%</strong></div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="progress-steps"><span id="step1">1 · Read</span><span id="step2">2 · Encode</span><span id="step3">3 · Finish</span></div>
+    </section>
     <p id="status" class="status">Waiting for a file.</p>
     <a id="download" class="download hidden">Download result</a>
-
-    <footer>
-      <span>Browser processing</span>
-      <span>FFmpeg WebAssembly</span>
-      <span>Node 24 ready</span>
-    </footer>
+    <footer><span>Local processing</span><span>FFmpeg WebAssembly</span><span>Node 24</span></footer>
   </main>
   <script type="module" src="/src/app.js"></script>
 </body>
