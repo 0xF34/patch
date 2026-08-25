@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MP4 Container Tool</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">LOCAL MP4 TOOL</p>
+      <h1>Inspect and patch your MP4</h1>
+      <p class="muted">No account, payment flow, fingerprinting, or server upload. Video processing stays in your browser.</p>
+    </header>
+
+    <section id="drop" class="drop">
+      <input id="file" type="file" accept=".mp4,video/mp4" hidden>
+      <button id="choose" class="primary">Choose MP4</button>
+      <p id="dropText">or drop a video here</p>
+      <p class="small">The patcher keeps the original video/audio samples and timing metadata. It only reorganizes the MP4 container for fast start when possible.</p>
+    </section>
+
+    <section id="info" class="card hidden">
+      <div class="row"><span>File</span><strong id="name">—</strong></div>
+      <div class="row"><span>Size</span><strong id="size">—</strong></div>
+      <div class="row"><span>Resolution</span><strong id="resolution">—</strong></div>
+      <div class="row"><span>Duration</span><strong id="duration">—</strong></div>
+      <div class="row"><span>FPS</span><strong id="fps">—</strong></div>
+      <div class="row"><span>Codec</span><strong id="codec">—</strong></div>
+      <div class="row"><span>Container</span><strong id="container">—</strong></div>
+    </section>
+
+    <section id="actions" class="actions hidden">
+      <button id="patch" class="primary">Patch MP4</button>
+      <button id="clear" class="secondary">Clear</button>
+    </section>
+
+    <p id="status" class="status"></p>
+    <a id="download" class="download hidden">Download patched MP4</a>
+
+    <footer>
+      <span>Node 24.x ready</span>
+      <span>Client-side processing</span>
+      <span>Lossless container operation</span>
+    </footer>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
