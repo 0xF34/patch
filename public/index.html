@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1013">
   <title>MP4 Container Tool</title>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -11,14 +12,14 @@
     <header>
       <p class="eyebrow">LOCAL MP4 TOOL</p>
       <h1>Inspect and patch your MP4</h1>
-      <p class="muted">No account, payment flow, fingerprinting, or server upload. Video processing stays in your browser.</p>
+      <p class="muted">Choose an MP4 from your device. Processing happens locally in your browser.</p>
     </header>
 
     <section id="drop" class="drop">
-      <input id="file" type="file" accept="video/mp4,.mp4" hidden>
-      <button id="choose" type="button" class="primary">Choose MP4</button>
+      <input id="file" type="file" accept="video/mp4,.mp4" class="file-input">
+      <label for="file" id="choose" class="primary file-button">Choose MP4</label>
       <p id="dropText">or drop a video here</p>
-      <p class="small">The patcher keeps the original video/audio samples and timing metadata. It only reorganizes the MP4 container for fast start when possible.</p>
+      <p class="small">Your video stays in the browser. No upload is required.</p>
     </section>
 
     <section id="info" class="card hidden">
@@ -40,9 +41,8 @@
     <a id="download" class="download hidden">Download patched MP4</a>
 
     <footer>
-      <span>Node 24.x ready</span>
       <span>Client-side processing</span>
-      <span>Lossless container operation</span>
+      <span>MP4 container operation</span>
     </footer>
   </main>
   <script type="module" src="/app.js"></script>
