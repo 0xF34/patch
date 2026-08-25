@@ -2,48 +2,78 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d1013">
-  <title>MP4 Container Tool</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Media Forge</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main class="shell">
-    <header>
-      <p class="eyebrow">LOCAL MP4 TOOL</p>
-      <h1>Inspect and patch your MP4</h1>
-      <p class="muted">Choose an MP4 from your device. Processing happens locally in your browser.</p>
+    <header class="hero">
+      <div class="badge">MEDIA FORGE</div>
+      <h1>Make media<br><span>actually change.</span></h1>
+      <p class="muted">Local video and audio processing. Your files stay in this browser.</p>
     </header>
 
-    <section id="drop" class="drop">
-      <input id="file" type="file" accept="video/mp4,.mp4" class="file-input">
-      <label for="file" id="choose" class="primary file-button">Choose MP4</label>
-      <p id="dropText">or drop a video here</p>
-      <p class="small">Your video stays in the browser. No upload is required.</p>
+    <section class="drop" id="drop">
+      <div class="drop-icon">+</div>
+      <input id="file" class="file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg">
+      <label for="file" id="choose" class="primary file-button">Choose media</label>
+      <p>or drop a video or audio file here</p>
+      <p class="small">Processing happens locally. Nothing is uploaded.</p>
     </section>
 
     <section id="info" class="card hidden">
-      <div class="row"><span>File</span><strong id="name">—</strong></div>
-      <div class="row"><span>Size</span><strong id="size">—</strong></div>
-      <div class="row"><span>Resolution</span><strong id="resolution">—</strong></div>
-      <div class="row"><span>Duration</span><strong id="duration">—</strong></div>
-      <div class="row"><span>FPS</span><strong id="fps">—</strong></div>
-      <div class="row"><span>Codec</span><strong id="codec">—</strong></div>
-      <div class="row"><span>Container</span><strong id="container">—</strong></div>
+      <div class="card-head"><div><span class="label">SOURCE</span><h2 id="name">—</h2></div><span id="type" class="pill">—</span></div>
+      <div class="stats">
+        <div><span>SIZE</span><strong id="size">—</strong></div>
+        <div><span>DURATION</span><strong id="duration">—</strong></div>
+        <div><span>VIDEO</span><strong id="video">—</strong></div>
+        <div><span>AUDIO</span><strong id="audio">—</strong></div>
+      </div>
     </section>
 
-    <section id="actions" class="actions hidden">
-      <button id="patch" type="button" class="primary">Patch MP4</button>
-      <button id="clear" type="button" class="secondary">Clear</button>
+    <section id="previewCard" class="preview card hidden"><video id="preview" controls playsinline preload="metadata"></video></section>
+
+    <section id="controls" class="card hidden">
+      <span class="label">VIDEO</span><h2>Frame & motion</h2>
+      <div class="grid">
+        <label>FPS<select id="fps"><option value="source">Source</option><option value="24">24 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+        <label>Resolution<select id="resolution"><option value="source">Source</option><option value="3840:2160">4K · 3840×2160</option><option value="2560:1440">1440p · 2560×1440</option><option value="1920:1080">1080p · 1920×1080</option><option value="1280:720">720p · 1280×720</option><option value="854:480">480p · 854×480</option></select></label>
+        <label>Quality<select id="quality"><option value="18">High</option><option value="22" selected>Balanced</option><option value="27">Small</option><option value="32">Smallest</option></select></label>
+        <label>Audio<select id="audioMode"><option value="keep">Keep audio</option><option value="mute">Remove audio</option></select></label>
+        <label>Rotation<select id="rotation"><option value="0">None</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+        <label>Mirror<select id="mirror"><option value="none">None</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></label>
+        <label>Brightness<input id="brightness" type="range" min="-0.5" max="0.5" step="0.05" value="0"></label>
+        <label>Contrast<input id="contrast" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+      </div>
     </section>
 
-    <p id="status" class="status">Waiting for an MP4.</p>
-    <a id="download" class="download hidden">Download processed MP4</a>
+    <section id="watermarkControls" class="card hidden">
+      <span class="label">WATERMARK</span><h2>Fixed overlay removal</h2>
+      <p class="small">Choose the area containing a fixed overlay. Processing uses a real video filter.</p>
+      <div class="grid">
+        <label>Position<select id="watermarkPreset"><option value="none">Off</option><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option><option value="center">Center</option></select></label>
+        <label>Box size<select id="watermarkSize"><option value="8">Small · 8%</option><option value="12" selected>Medium · 12%</option><option value="18">Large · 18%</option><option value="25">XL · 25%</option></select></label>
+      </div>
+    </section>
 
-    <footer>
-      <span>Client-side processing</span>
-      <span>MP4 container operation</span>
-    </footer>
+    <section id="audioControls" class="card hidden">
+      <span class="label">AUDIO</span><h2>MP3 output</h2>
+      <div class="grid"><label>Bitrate<select id="bitrate"><option value="128k">128 kbps</option><option value="192k" selected>192 kbps</option><option value="256k">256 kbps</option><option value="320k">320 kbps</option></select></label></div>
+    </section>
+
+    <section id="actions" class="actions hidden"><button id="process" type="button" class="primary">Process file</button><button id="clear" type="button" class="secondary">Clear</button></section>
+
+    <section id="progressWrap" class="progress-card hidden">
+      <div class="progress-top"><strong id="progressTitle">Preparing</strong><strong id="progressPercent">0%</strong></div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="progress-steps"><span id="step1">1 · Read</span><span id="step2">2 · Encode</span><span id="step3">3 · Finish</span></div>
+    </section>
+
+    <p id="status" class="status">Waiting for a file.</p>
+    <a id="download" class="download hidden">Download result</a>
+    <footer><span>LOCAL</span><span>FFMPEG</span><span>NODE 24</span></footer>
   </main>
   <script src="/app.js" defer></script>
 </body>
