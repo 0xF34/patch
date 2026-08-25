@@ -1,7 +1,6 @@
 import { inspectMp4, moveMoovToFront } from "./mp4.js";
 
 const fileInput = document.querySelector("#file");
-const chooseButton = document.querySelector("#choose");
 const drop = document.querySelector("#drop");
 const info = document.querySelector("#info");
 const actions = document.querySelector("#actions");
@@ -33,9 +32,7 @@ function formatBytes(bytes) {
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds)) return "—";
   const total = Math.round(seconds);
-  const minutes = Math.floor(total / 60);
-  const secs = String(total % 60).padStart(2, "0");
-  return `${minutes}:${secs}`;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function formatFps(fps) {
@@ -98,9 +95,6 @@ async function patch() {
 
   try {
     const result = moveMoovToFront(selectedBytes);
-
-    // Safe mode intentionally returns the original bytes unless all required
-    // offset rewriting can be proven safe. This prevents broken MP4 output.
     const blob = new Blob([result.bytes], { type: "video/mp4" });
 
     if (outputUrl) URL.revokeObjectURL(outputUrl);
@@ -109,7 +103,6 @@ async function patch() {
     download.href = outputUrl;
     download.download = selectedFile.name.replace(/\.mp4$/i, "") + "_patched.mp4";
     download.classList.remove("hidden");
-
     status.textContent = result.changed
       ? "Patch complete."
       : "Safe container mode: the original media samples and FPS were preserved exactly.";
@@ -120,25 +113,24 @@ async function patch() {
   }
 }
 
-chooseButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => loadFile(fileInput.files?.[0]));
 
 for (const event of ["dragenter", "dragover"]) {
-  drop.addEventListener(event, (e) => {
-    e.preventDefault();
+  drop.addEventListener(event, (event) => {
+    event.preventDefault();
     drop.classList.add("drag");
   });
 }
 
 for (const event of ["dragleave", "drop"]) {
-  drop.addEventListener(event, (e) => {
-    e.preventDefault();
+  drop.addEventListener(event, (event) => {
+    event.preventDefault();
     drop.classList.remove("drag");
   });
 }
 
-drop.addEventListener("drop", (e) => {
-  loadFile(e.dataTransfer.files?.[0]);
+drop.addEventListener("drop", (event) => {
+  loadFile(event.dataTransfer.files?.[0]);
 });
 
 patchButton.addEventListener("click", patch);
