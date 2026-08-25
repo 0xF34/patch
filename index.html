@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1013">
+  <title>Media Tool</title>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">LOCAL MEDIA TOOL</p>
+      <h1>Video & audio tools</h1>
+      <p class="muted">Pick a file from your device. Processing runs in your browser.</p>
+    </header>
+
+    <section class="drop" id="drop">
+      <input id="file" class="file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg">
+      <label for="file" class="primary file-button">Choose media</label>
+      <p>or drop a video or audio file here</p>
+      <p class="small">Nothing is uploaded to this site.</p>
+    </section>
+
+    <section id="info" class="card hidden">
+      <div class="row"><span>File</span><strong id="name">—</strong></div>
+      <div class="row"><span>Size</span><strong id="size">—</strong></div>
+      <div class="row"><span>Type</span><strong id="type">—</strong></div>
+      <div class="row"><span>Duration</span><strong id="duration">—</strong></div>
+      <div class="row"><span>Video</span><strong id="video">—</strong></div>
+      <div class="row"><span>Audio</span><strong id="audio">—</strong></div>
+    </section>
+
+    <section id="controls" class="card hidden">
+      <h2>Video settings</h2>
+      <div class="grid">
+        <label>FPS
+          <select id="fps">
+            <option value="source">Keep source FPS</option>
+            <option value="24">24</option>
+            <option value="30">30</option>
+            <option value="60">60</option>
+          </select>
+        </label>
+        <label>Resolution
+          <select id="resolution">
+            <option value="source">Keep source resolution</option>
+            <option value="3840:2160">3840 × 2160</option>
+            <option value="2560:1440">2560 × 1440</option>
+            <option value="1920:1080">1920 × 1080</option>
+            <option value="1280:720">1280 × 720</option>
+            <option value="854:480">854 × 480</option>
+          </select>
+        </label>
+        <label>Quality
+          <select id="quality">
+            <option value="18">High</option>
+            <option value="22" selected>Balanced</option>
+            <option value="27">Smaller file</option>
+            <option value="32">Smallest</option>
+          </select>
+        </label>
+        <label>Audio
+          <select id="audioMode">
+            <option value="keep">Keep audio</option>
+            <option value="mute">Remove audio</option>
+          </select>
+        </label>
+      </div>
+      <p class="small">FPS, resolution and quality are real FFmpeg conversions. They may take a while on an iPhone.</p>
+    </section>
+
+    <section id="audioControls" class="card hidden">
+      <h2>Audio settings</h2>
+      <div class="grid">
+        <label>MP3 bitrate
+          <select id="bitrate">
+            <option value="128k">128 kbps</option>
+            <option value="192k" selected>192 kbps</option>
+            <option value="256k">256 kbps</option>
+            <option value="320k">320 kbps</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section id="actions" class="actions hidden">
+      <button id="process" type="button" class="primary">Process file</button>
+      <button id="clear" type="button" class="secondary">Clear</button>
+    </section>
+
+    <div id="progressWrap" class="progress hidden"><div id="progress"></div></div>
+    <p id="status" class="status">Waiting for a file.</p>
+    <a id="download" class="download hidden">Download result</a>
+
+    <footer>
+      <span>Browser processing</span>
+      <span>FFmpeg WebAssembly</span>
+      <span>Node 24 ready</span>
+    </footer>
+  </main>
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
