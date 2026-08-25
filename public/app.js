@@ -1,5 +1,5 @@
-import { FFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/+esm';
-import { fetchFile, toBlobURL } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/+esm';
+import { FFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm';
+import { fetchFile } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/+esm';
 
 const $ = (id) => document.getElementById(id);
 const fileInput = $('file');
@@ -17,97 +17,84 @@ const download = $('download');
 const status = $('status');
 const progressWrap = $('progressWrap');
 const progressBar = $('progress');
-const progressTitle = $('progressTitle');
-const progressPercent = $('progressPercent');
 
-const ffmpeg = new FFmpeg();
+let ffmpeg = null;
 let ffmpegReady = false;
 let ffmpegLoading = null;
 let selectedFile = null;
-let outputUrl = null;
-let inputName = '';
 let sourceUrl = null;
-let sourceIsVideo = false;
-let sourceIsAudio = false;
+let outputUrl = null;
+let sourceMeta = null;
 let processing = false;
 let previewOverlay = null;
 let previewBadge = null;
 
-function setText(id, value) {
-  const node = $(id);
+const get = (id) => $(id);
+const show = (node) => node?.classList.remove('hidden');
+const hide = (node) => node?.classList.add('hidden');
+
+function text(id, value) {
+  const node = get(id);
   if (node) node.textContent = value;
 }
 
-function show(node) { node?.classList.remove('hidden'); }
-function hide(node) { node?.classList.add('hidden'); }
-
-function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let value = bytes / 1024;
-  let unit = units[0];
-  for (let i = 0; i < units.length - 1 && value >= 1024; i++) {
-    value /= 1024;
-    unit = units[i + 1];
-  }
-  return `${value.toFixed(value >= 100 ? 0 : 1)} ${unit}`;
+function bytes(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatDuration(seconds) {
-  if (!Number.isFinite(seconds)) return '—';
-  const total = Math.max(0, Math.round(seconds));
+function duration(value) {
+  if (!Number.isFinite(value)) return '—';
+  const total = Math.max(0, Math.round(value));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function setProgress(percent, title) {
-  const value = Math.max(0, Math.min(100, Math.round(percent)));
+function progress(value, title) {
+  const p = Math.max(0, Math.min(100, Math.round(value)));
   show(progressWrap);
-  if (progressBar) progressBar.style.width = `${value}%`;
-  setText('progressPercent', `${value}%`);
-  setText('progressTitle', title);
+  if (progressBar) progressBar.style.width = `${p}%`;
+  text('progressPercent', `${p}%`);
+  text('progressTitle', title);
 }
 
-function setStep(step) {
+function step(active) {
   ['step1', 'step2', 'step3'].forEach((id, index) => {
-    const node = $(id);
+    const node = get(id);
     if (!node) return;
-    node.classList.toggle('active', index + 1 === step);
-    node.classList.toggle('done', index + 1 < step);
+    node.classList.toggle('active', index + 1 === active);
+    node.classList.toggle('done', index + 1 < active);
   });
 }
 
-function safeInputName(name) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+function resolutionValue() {
+  const value = get('resolution')?.value || 'source';
+  if (value === 'source') return null;
+  const [w, h] = value.split(':').map(Number);
+  return Number.isFinite(w) && Number.isFinite(h) ? { w, h } : null;
 }
 
-function extensionFor(file) {
-  const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  if (['mp3', 'wav', 'm4a', 'aac', 'ogg'].includes(ext)) return ext;
-  if (file.type.startsWith('audio/')) return 'm4a';
-  return ['mp4', 'mov', 'webm', 'mkv'].includes(ext) ? ext : 'mp4';
-}
-
-function ensurePreviewLayer() {
+function makePreviewLayer() {
   if (!previewCard || !preview) return;
-  if (!previewCard.style.position) previewCard.style.position = 'relative';
+  previewCard.style.position = 'relative';
 
   if (!previewOverlay) {
     previewOverlay = document.createElement('div');
-    previewOverlay.setAttribute('aria-hidden', 'true');
     Object.assign(previewOverlay.style, {
       position: 'absolute',
-      pointerEvents: 'none',
       display: 'none',
+      pointerEvents: 'none',
       zIndex: '4',
-      borderRadius: '10px',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
-      background: 'rgba(0,0,0,.18)',
-      border: '1px solid rgba(255,255,255,.12)',
+      border: '1px solid rgba(255,255,255,.2)',
+      background: 'rgba(0,0,0,.45)',
+      backdropFilter: 'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
+      borderRadius: '8px',
       boxSizing: 'border-box'
     });
     previewCard.appendChild(previewOverlay);
@@ -115,116 +102,83 @@ function ensurePreviewLayer() {
 
   if (!previewBadge) {
     previewBadge = document.createElement('div');
-    previewBadge.setAttribute('aria-hidden', 'true');
     Object.assign(previewBadge.style, {
       position: 'absolute',
-      left: '14px',
-      top: '14px',
+      left: '12px',
+      top: '12px',
       zIndex: '5',
       pointerEvents: 'none',
       padding: '7px 10px',
       borderRadius: '999px',
-      background: 'rgba(0,0,0,.72)',
-      border: '1px solid rgba(255,255,255,.16)',
       color: '#fff',
-      font: '600 12px/1 -apple-system,BlinkMacSystemFont,sans-serif',
-      letterSpacing: '.02em',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)'
+      background: 'rgba(0,0,0,.75)',
+      border: '1px solid rgba(255,255,255,.15)',
+      font: '600 11px -apple-system,BlinkMacSystemFont,sans-serif'
     });
     previewCard.appendChild(previewBadge);
   }
 }
 
-function parseResolution(value) {
-  if (!value || value === 'source') return null;
-  const [w, h] = value.split(':').map(Number);
-  return Number.isFinite(w) && Number.isFinite(h) ? { w, h } : null;
-}
+function updatePreview() {
+  if (!selectedFile || !sourceMeta || !sourceMeta.video || !preview) return;
+  makePreviewLayer();
 
-function updateLivePreview() {
-  if (!sourceIsVideo || !selectedFile || !preview) return;
-  ensurePreviewLayer();
+  const fps = get('fps')?.value || 'source';
+  const target = resolutionValue();
+  const brightness = Number(get('brightness')?.value || 0);
+  const contrast = Number(get('contrast')?.value || 1);
+  const rotation = get('rotation')?.value || '0';
+  const mirror = get('mirror')?.value || 'none';
+  const watermark = get('watermarkPreset')?.value || 'none';
+  const size = Number(get('watermarkSize')?.value || 12);
 
-  const fps = $('fps')?.value || 'source';
-  const resolution = $('resolution')?.value || 'source';
-  const brightness = Number($('brightness')?.value || 0);
-  const contrast = Number($('contrast')?.value || 1);
-  const rotation = $('rotation')?.value || '0';
-  const mirror = $('mirror')?.value || 'none';
-  const preset = $('watermarkPreset')?.value || 'none';
-  const size = Number($('watermarkSize')?.value || 12);
-  const target = parseResolution(resolution);
-
-  // CSS is used for the live preview so changes appear immediately without
-  // waiting for FFmpeg to re-encode the whole file. The downloaded file still
-  // uses the real FFmpeg filters when Process file is run.
-  const filters = [];
-  if (brightness !== 0 || contrast !== 1) {
-    filters.push(`brightness(${1 + brightness})`, `contrast(${contrast})`);
-  }
-  preview.style.filter = filters.length ? filters.join(' ') : 'none';
-
-  let transform = '';
-  if (rotation === '90') transform += 'rotate(90deg)';
-  if (rotation === '180') transform += 'rotate(180deg)';
-  if (rotation === '270') transform += 'rotate(270deg)';
-  if (mirror === 'horizontal') transform += ' scaleX(-1)';
-  if (mirror === 'vertical') transform += ' scaleY(-1)';
-  preview.style.transform = transform.trim() || 'none';
+  preview.style.filter = `brightness(${1 + brightness}) contrast(${contrast})`;
+  const transforms = [];
+  if (rotation === '90') transforms.push('rotate(90deg)');
+  if (rotation === '180') transforms.push('rotate(180deg)');
+  if (rotation === '270') transforms.push('rotate(270deg)');
+  if (mirror === 'horizontal') transforms.push('scaleX(-1)');
+  if (mirror === 'vertical') transforms.push('scaleY(-1)');
+  preview.style.transform = transforms.join(' ') || 'none';
   preview.style.transformOrigin = 'center center';
   preview.style.transition = 'filter .12s ease, transform .12s ease';
 
-  // Make the preview frame reflect the selected output dimensions/aspect.
-  if (target) {
-    previewCard.style.aspectRatio = `${target.w} / ${target.h}`;
-    preview.style.width = '100%';
-    preview.style.height = '100%';
-    preview.style.objectFit = 'contain';
-  } else {
-    previewCard.style.aspectRatio = '';
-    preview.style.width = '100%';
-    preview.style.height = 'auto';
-    preview.style.objectFit = 'contain';
-  }
+  const outputW = target?.w || sourceMeta.width;
+  const outputH = target?.h || sourceMeta.height;
+  previewCard.style.aspectRatio = `${outputW} / ${outputH}`;
+  preview.style.width = '100%';
+  preview.style.height = '100%';
+  preview.style.objectFit = 'contain';
 
   if (previewBadge) {
-    const fpsText = fps === 'source' ? 'Source FPS' : `${fps} FPS`;
-    const resText = target ? `${target.w}×${target.h}` : 'Source resolution';
-    previewBadge.textContent = `LIVE PREVIEW · ${resText} · ${fpsText}`;
+    previewBadge.textContent = `LIVE · ${outputW}×${outputH} · ${fps === 'source' ? 'source FPS' : `${fps} FPS`}`;
   }
 
-  if (previewOverlay) {
-    if (preset === 'none') {
-      previewOverlay.style.display = 'none';
-    } else {
-      previewOverlay.style.display = 'block';
-      const horizontal = preset.includes('right') ? 'right' : preset.includes('left') ? 'left' : 'center';
-      const vertical = preset.includes('bottom') ? 'bottom' : preset.includes('top') ? 'top' : 'center';
-      const boxW = `${Math.max(8, Math.min(35, size * 1.8))}%`;
-      const boxH = `${Math.max(6, Math.min(30, size * 1.15))}%`;
-      previewOverlay.style.width = boxW;
-      previewOverlay.style.height = boxH;
-      previewOverlay.style.left = horizontal === 'center' ? '50%' : horizontal === 'left' ? '2%' : 'auto';
-      previewOverlay.style.right = horizontal === 'right' ? '2%' : 'auto';
-      previewOverlay.style.top = vertical === 'center' ? '50%' : vertical === 'top' ? '2%' : 'auto';
-      previewOverlay.style.bottom = vertical === 'bottom' ? '2%' : 'auto';
-      previewOverlay.style.transform = 'translate(-50%, -50%)';
-      if (horizontal !== 'center') previewOverlay.style.transform = vertical === 'center' ? 'translateY(-50%)' : 'none';
-      if (vertical !== 'center') previewOverlay.style.transform = horizontal === 'center' ? 'translateX(-50%)' : 'none';
-      if (horizontal === 'center' && vertical === 'center') previewOverlay.style.transform = 'translate(-50%, -50%)';
-    }
+  if (!previewOverlay) return;
+  if (watermark === 'none') {
+    previewOverlay.style.display = 'none';
+    return;
   }
+
+  previewOverlay.style.display = 'block';
+  previewOverlay.style.width = `${Math.max(8, Math.min(40, size * 1.8))}%`;
+  previewOverlay.style.height = `${Math.max(6, Math.min(32, size * 1.15))}%`;
+  previewOverlay.style.left = watermark.includes('left') ? '2%' : watermark.includes('right') ? 'auto' : '50%';
+  previewOverlay.style.right = watermark.includes('right') ? '2%' : 'auto';
+  previewOverlay.style.top = watermark.includes('top') ? '2%' : watermark.includes('bottom') ? 'auto' : '50%';
+  previewOverlay.style.bottom = watermark.includes('bottom') ? '2%' : 'auto';
+  const centerX = !watermark.includes('left') && !watermark.includes('right');
+  const centerY = !watermark.includes('top') && !watermark.includes('bottom');
+  previewOverlay.style.transform = centerX && centerY ? 'translate(-50%,-50%)' : centerX ? 'translateX(-50%)' : centerY ? 'translateY(-50%)' : 'none';
 }
 
-function attachLivePreviewListeners() {
-  ['fps', 'resolution', 'quality', 'audioMode', 'rotation', 'mirror', 'brightness', 'contrast', 'watermarkPreset', 'watermarkSize', 'bitrate']
-    .forEach((id) => {
-      const node = $(id);
-      if (!node) return;
-      node.addEventListener('input', updateLivePreview);
-      node.addEventListener('change', updateLivePreview);
-    });
+function attachPreviewListeners() {
+  ['fps', 'resolution', 'quality', 'audioMode', 'rotation', 'mirror', 'brightness', 'contrast', 'watermarkPreset', 'watermarkSize', 'bitrate'].forEach((id) => {
+    const node = get(id);
+    if (!node) return;
+    node.addEventListener('input', updatePreview);
+    node.addEventListener('change', updatePreview);
+  });
 }
 
 function reset() {
@@ -233,241 +187,307 @@ function reset() {
   sourceUrl = null;
   outputUrl = null;
   selectedFile = null;
-  inputName = '';
-  sourceIsVideo = false;
-  sourceIsAudio = false;
-  fileInput.value = '';
-  preview.removeAttribute('src');
-  preview.load();
-  preview.style.filter = 'none';
-  preview.style.transform = 'none';
-  previewCard.style.aspectRatio = '';
+  sourceMeta = null;
+  processing = false;
+  if (fileInput) fileInput.value = '';
+  if (preview) {
+    preview.removeAttribute('src');
+    preview.load();
+    preview.style.filter = 'none';
+    preview.style.transform = 'none';
+  }
+  if (previewCard) previewCard.style.aspectRatio = '';
   if (previewOverlay) previewOverlay.style.display = 'none';
-  if (previewBadge) previewBadge.textContent = '';
   hide(info);
   hide(previewCard);
   hide(actions);
   hide(progressWrap);
   hide(download);
-  setText('status', 'Waiting for a file.');
-  processButton.disabled = false;
+  text('status', 'Set your options, then choose a file.');
+  if (processButton) processButton.disabled = false;
 }
 
-async function readMediaMetadata(file) {
+async function mediaMetadata(file) {
   const url = URL.createObjectURL(file);
   const media = document.createElement(file.type.startsWith('audio/') ? 'audio' : 'video');
   media.preload = 'metadata';
   media.src = url;
-  media.playsInline = true;
-
   return new Promise((resolve, reject) => {
     media.onloadedmetadata = () => {
-      const result = { duration: media.duration, width: media.videoWidth || 0, height: media.videoHeight || 0 };
+      const result = {
+        duration: media.duration,
+        width: media.videoWidth || 0,
+        height: media.videoHeight || 0,
+        video: media.tagName === 'VIDEO'
+      };
       URL.revokeObjectURL(url);
       resolve(result);
     };
     media.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('The browser could not read this media file.'));
+      reject(new Error('Safari could not read this media file.'));
     };
   });
 }
 
-async function loadFile(file) {
-  if (!file || processing) return;
-  reset();
-  selectedFile = file;
-  inputName = safeInputName(file.name);
-  sourceIsVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv)$/i.test(file.name);
-  sourceIsAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name);
+async function fetchBlobURL(url, type, label, start, end) {
+  const response = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+  if (!response.ok) throw new Error(`Could not download ${label} (${response.status}).`);
 
-  try {
-    setStep(1);
-    setProgress(2, 'Checking file');
-    setText('status', 'Reading media metadata…');
-    const meta = await readMediaMetadata(file);
-
-    setProgress(8, 'File ready');
-    setText('name', file.name);
-    setText('size', formatBytes(file.size));
-    setText('duration', formatDuration(meta.duration));
-    setText('type', sourceIsVideo ? 'VIDEO' : 'AUDIO');
-    setText('video', sourceIsVideo ? `${meta.width} × ${meta.height}` : 'None');
-    setText('audio', sourceIsAudio || sourceIsVideo ? 'Available' : 'None');
-
-    sourceUrl = URL.createObjectURL(file);
-    if (sourceIsVideo) {
-      preview.src = sourceUrl;
-      show(previewCard);
-      hide(audioControls);
-      ensurePreviewLayer();
-      updateLivePreview();
-    } else {
-      hide(previewCard);
-      hide(watermarkControls);
-      hide(controls);
-      show(audioControls);
-    }
-
-    show(info);
-    show(actions);
-    setText('status', 'Preview updated live. Starting automatic processing with your selected settings…');
-    await processFile();
-  } catch (error) {
-    reset();
-    setText('status', error instanceof Error ? error.message : 'Could not read this file.');
+  const total = Number(response.headers.get('content-length')) || 0;
+  if (!response.body || !response.body.getReader) {
+    const data = await response.arrayBuffer();
+    progress(end, `${label} ready`);
+    return URL.createObjectURL(new Blob([data], { type }));
   }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    const ratio = total ? received / total : 0;
+    progress(start + (end - start) * ratio, `Downloading ${label}`);
+  }
+  return URL.createObjectURL(new Blob(chunks, { type }));
 }
 
 async function ensureFFmpeg() {
-  if (ffmpegReady) return;
+  if (ffmpegReady && ffmpeg) return;
   if (ffmpegLoading) return ffmpegLoading;
 
   ffmpegLoading = (async () => {
-    setProgress(10, 'Loading encoder');
-    setStep(1);
-    setText('status', 'Loading FFmpeg engine (~31 MB). Keep this page open…');
+    if (ffmpeg) {
+      try { ffmpeg.terminate(); } catch {}
+    }
+    ffmpeg = new FFmpeg();
 
-    ffmpeg.on('progress', ({ progress }) => {
+    ffmpeg.on('progress', ({ progress: value }) => {
       if (!processing) return;
-      const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-      setStep(2);
-      setProgress(15 + p * 80, 'Encoding');
-      setText('status', `Encoding… ${Math.round(p * 100)}%`);
+      const p = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+      step(2);
+      progress(30 + p * 65, 'Encoding');
+      text('status', `Encoding video… ${Math.round(p * 100)}%`);
     });
 
-    ffmpeg.on('log', ({ message }) => { if (message) console.debug('[FFmpeg]', message); });
+    ffmpeg.on('log', ({ message }) => {
+      if (message) console.debug('[ffmpeg]', message);
+    });
 
-    const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
-    const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
-    const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
-    await ffmpeg.load({ coreURL, wasmURL });
-    ffmpegReady = true;
-    setProgress(15, 'Encoder ready');
+    const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
+    progress(10, 'Starting encoder');
+    text('status', 'Downloading FFmpeg core. This is the only large first-run download.');
+
+    let coreURL;
+    let wasmURL;
+    try {
+      coreURL = await fetchBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript', 'FFmpeg core', 10, 18);
+      wasmURL = await fetchBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm', 'FFmpeg WASM', 18, 29);
+      progress(29, 'Initializing encoder');
+      await Promise.race([
+        ffmpeg.load({ coreURL, wasmURL }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('FFmpeg took too long to initialize. Reload and try again.')), 90000))
+      ]);
+      ffmpegReady = true;
+      progress(30, 'Encoder ready');
+      text('status', 'Encoder ready. Processing your file…');
+    } finally {
+      if (coreURL) URL.revokeObjectURL(coreURL);
+      if (wasmURL) URL.revokeObjectURL(wasmURL);
+    }
   })();
 
-  try { await ffmpegLoading; } finally { ffmpegLoading = null; }
+  try {
+    await ffmpegLoading;
+  } catch (error) {
+    ffmpegReady = false;
+    try { ffmpeg?.terminate(); } catch {}
+    ffmpeg = null;
+    throw error;
+  } finally {
+    ffmpegLoading = null;
+  }
 }
 
-function buildVideoFilter(width, height) {
-  const filters = [];
-  const resolution = $('resolution')?.value || 'source';
-  const fps = $('fps')?.value || 'source';
-  const brightness = Number($('brightness')?.value || 0);
-  const contrast = Number($('contrast')?.value || 1);
-  const rotation = $('rotation')?.value || '0';
-  const mirror = $('mirror')?.value || 'none';
-  const preset = $('watermarkPreset')?.value || 'none';
-  const size = Number($('watermarkSize')?.value || 12) / 100;
+function inputExtension(file) {
+  const match = file.name.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : (file.type.startsWith('audio/') ? 'm4a' : 'mp4');
+}
 
-  if (resolution !== 'source') {
-    const [rw, rh] = resolution.split(':').map(Number);
-    filters.push(`scale=${rw}:${rh}:force_original_aspect_ratio=decrease,pad=${rw}:${rh}:(ow-iw)/2:(oh-ih)/2`);
-  }
+function videoFilters() {
+  const filters = [];
+  const target = resolutionValue();
+  const fps = get('fps')?.value || 'source';
+  const brightness = Number(get('brightness')?.value || 0);
+  const contrast = Number(get('contrast')?.value || 1);
+  const rotation = get('rotation')?.value || '0';
+  const mirror = get('mirror')?.value || 'none';
+
+  if (target) filters.push(`scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2`);
   if (fps !== 'source') filters.push(`fps=${fps}`);
   if (brightness !== 0 || contrast !== 1) filters.push(`eq=brightness=${brightness}:contrast=${contrast}`);
+  if (rotation === '90') filters.push('transpose=clock');
+  if (rotation === '180') filters.push('transpose=clock,transpose=clock');
+  if (rotation === '270') filters.push('transpose=cclock');
   if (mirror === 'horizontal') filters.push('hflip');
   if (mirror === 'vertical') filters.push('vflip');
-  if (rotation === '90') filters.push('transpose=1');
-  if (rotation === '180') filters.push('transpose=1,transpose=1');
-  if (rotation === '270') filters.push('transpose=2');
 
-  if (preset !== 'none') {
-    const w = Math.max(16, Math.round(width * size));
-    const h = Math.max(16, Math.round(height * size * 0.65));
-    const margin = Math.max(4, Math.round(Math.min(width, height) * 0.02));
-    let x = margin;
-    let y = margin;
-    if (preset.includes('right')) x = width - w - margin;
-    if (preset.includes('bottom')) y = height - h - margin;
-    if (preset === 'center') { x = Math.round((width - w) / 2); y = Math.round((height - h) / 2); }
+  const preset = get('watermarkPreset')?.value || 'none';
+  if (preset !== 'none' && sourceMeta?.width && sourceMeta?.height) {
+    const ratio = Number(get('watermarkSize')?.value || 12) / 100;
+    const w = Math.max(16, Math.round(sourceMeta.width * ratio));
+    const h = Math.max(16, Math.round(sourceMeta.height * ratio));
+    const marginX = Math.max(2, Math.round(sourceMeta.width * 0.02));
+    const marginY = Math.max(2, Math.round(sourceMeta.height * 0.02));
+    let x = marginX;
+    let y = marginY;
+    if (preset.includes('right')) x = sourceMeta.width - w - marginX;
+    if (preset.includes('bottom')) y = sourceMeta.height - h - marginY;
+    if (preset === 'center') {
+      x = Math.round((sourceMeta.width - w) / 2);
+      y = Math.round((sourceMeta.height - h) / 2);
+    }
+    x = Math.max(0, x);
+    y = Math.max(0, y);
     filters.push(`delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0`);
   }
   return filters.join(',');
 }
 
-async function processVideo() {
-  const ext = extensionFor(selectedFile);
-  const input = `input.${ext}`;
-  const output = 'output.mp4';
-  await ffmpeg.writeFile(input, await fetchFile(selectedFile));
-  const meta = await readMediaMetadata(selectedFile);
-  const filter = buildVideoFilter(meta.width || 1280, meta.height || 720);
-  const args = ['-i', input];
-  if (filter) args.push('-vf', filter);
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', $('quality')?.value || '22');
-  if (($('audioMode')?.value || 'keep') === 'mute') args.push('-an');
-  else args.push('-c:a', 'aac', '-b:a', '160k');
-  args.push('-movflags', '+faststart', output);
-  const code = await ffmpeg.exec(args);
-  if (code !== 0) throw new Error('FFmpeg could not encode this video.');
-  return output;
-}
-
-async function processAudio() {
-  const ext = extensionFor(selectedFile);
-  const input = `input.${ext}`;
-  const output = 'output.mp3';
-  await ffmpeg.writeFile(input, await fetchFile(selectedFile));
-  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', output]);
-  if (code !== 0) throw new Error('FFmpeg could not create the MP3.');
-  return output;
-}
-
 async function processFile() {
   if (!selectedFile || processing) return;
   processing = true;
-  processButton.disabled = true;
+  if (processButton) processButton.disabled = true;
   hide(download);
-  setStep(1);
-  setProgress(3, 'Preparing');
+  setProgress(4, 'Preparing');
+  step(1);
 
   try {
     await ensureFFmpeg();
-    setStep(2);
-    setProgress(15, 'Encoding');
-    const output = sourceIsVideo ? await processVideo() : await processAudio();
+    const inputExt = inputExtension(selectedFile);
+    const input = `input.${inputExt}`;
+    const isVideo = sourceMeta?.video;
+    const output = isVideo ? 'media-forge-output.mp4' : 'media-forge-output.mp3';
 
-    setStep(3);
-    setProgress(97, 'Finishing');
+    try { await ffmpeg.deleteFile(input); } catch {}
+    try { await ffmpeg.deleteFile(output); } catch {}
+
+    text('status', 'Copying the selected file into the local FFmpeg workspace…');
+    await ffmpeg.writeFile(input, await fetchFile(selectedFile));
+    progress(30, 'Encoding');
+    step(2);
+
+    let args;
+    if (isVideo) {
+      args = ['-i', input];
+      const vf = videoFilters();
+      if (vf) args.push('-vf', vf);
+      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', get('quality')?.value || '22', '-pix_fmt', 'yuv420p');
+      if ((get('audioMode')?.value || 'keep') === 'mute') {
+        args.push('-an');
+      } else {
+        args.push('-c:a', 'aac', '-b:a', '128k');
+      }
+      args.push('-movflags', '+faststart', output);
+    } else {
+      args = ['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', get('bitrate')?.value || '192k', output];
+    }
+
+    const code = await ffmpeg.exec(args);
+    if (code !== 0) throw new Error(`FFmpeg stopped with code ${code}.`);
+
+    step(3);
+    progress(98, 'Finishing');
     const data = await ffmpeg.readFile(output);
-    const type = sourceIsVideo ? 'video/mp4' : 'audio/mpeg';
-    outputUrl = URL.createObjectURL(new Blob([data], { type }));
-    const baseName = inputName.replace(/\.[^.]+$/, '') || 'media';
+    const mime = isVideo ? 'video/mp4' : 'audio/mpeg';
+    if (outputUrl) URL.revokeObjectURL(outputUrl);
+    outputUrl = URL.createObjectURL(new Blob([data.buffer], { type: mime }));
+
     download.href = outputUrl;
-    download.download = `${baseName}_processed.${sourceIsVideo ? 'mp4' : 'mp3'}`;
-    download.textContent = `Download modified ${sourceIsVideo ? 'MP4' : 'MP3'} · ${formatBytes(data.byteLength)}`;
+    download.download = isVideo ? 'media-forge-output.mp4' : 'media-forge-output.mp3';
+    download.textContent = `Download modified ${isVideo ? 'MP4' : 'MP3'} · ${bytes(data.byteLength)}`;
     show(download);
-    setProgress(100, 'Complete');
-    setStep(3);
-    setText('status', 'Finished. Your modified file is ready below.');
+    progress(100, 'Finished');
+    text('status', `Done. The output is a new ${isVideo ? 'MP4' : 'MP3'} file; your original stays unchanged.`);
   } catch (error) {
     console.error(error);
-    setText('status', error instanceof Error ? error.message : 'Processing failed.');
-    setProgress(0, 'Failed');
+    progress(0, 'Processing failed');
+    text('status', error instanceof Error ? error.message : 'Processing failed.');
   } finally {
     processing = false;
-    processButton.disabled = false;
-    for (const name of ['input.mp4','input.mov','input.webm','input.mkv','input.mp3','input.wav','input.m4a','input.aac','input.ogg','output.mp4','output.mp3']) {
-      try { await ffmpeg.deleteFile(name); } catch {}
-    }
+    if (processButton) processButton.disabled = false;
   }
 }
 
-fileInput.addEventListener('change', (event) => {
-  const file = event.target.files?.[0];
-  if (file) loadFile(file);
-});
+async function loadFile(file) {
+  if (!file || processing) return;
+  if (file.size === 0) return text('status', 'That file is empty.');
 
-drop.addEventListener('dragover', (event) => { event.preventDefault(); drop.classList.add('drag'); });
-drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
-drop.addEventListener('drop', (event) => {
+  if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+  if (outputUrl) URL.revokeObjectURL(outputUrl);
+  sourceUrl = null;
+  outputUrl = null;
+  selectedFile = file;
+  sourceMeta = null;
+  hide(download);
+
+  try {
+    progress(2, 'Checking file');
+    step(1);
+    text('status', 'Reading the media header…');
+    sourceMeta = await mediaMetadata(file);
+
+    text('name', file.name);
+    text('size', bytes(file.size));
+    text('duration', duration(sourceMeta.duration));
+    text('type', sourceMeta.video ? 'VIDEO' : 'AUDIO');
+    text('video', sourceMeta.video ? `${sourceMeta.width} × ${sourceMeta.height}` : 'None');
+    text('audio', sourceMeta.video ? 'Available' : 'Audio');
+    show(info);
+    show(actions);
+
+    sourceUrl = URL.createObjectURL(file);
+    if (sourceMeta.video) {
+      preview.src = sourceUrl;
+      show(previewCard);
+      show(controls);
+      show(watermarkControls);
+      hide(audioControls);
+      makePreviewLayer();
+      updatePreview();
+    } else {
+      hide(previewCard);
+      hide(controls);
+      hide(watermarkControls);
+      show(audioControls);
+    }
+
+    progress(7, 'File ready');
+    text('status', 'File checked. Starting automatic processing…');
+    await processFile();
+  } catch (error) {
+    console.error(error);
+    text('status', error instanceof Error ? error.message : 'Could not read this file.');
+  }
+}
+
+fileInput?.addEventListener('change', () => loadFile(fileInput.files?.[0]));
+
+drop?.addEventListener('dragover', (event) => {
   event.preventDefault();
-  drop.classList.remove('drag');
-  const file = event.dataTransfer.files?.[0];
-  if (file) loadFile(file);
+  drop.classList.add('dragging');
+});
+drop?.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+drop?.addEventListener('drop', (event) => {
+  event.preventDefault();
+  drop.classList.remove('dragging');
+  loadFile(event.dataTransfer?.files?.[0]);
 });
 
-processButton.addEventListener('click', processFile);
-clearButton.addEventListener('click', reset);
-attachLivePreviewListeners();
+processButton?.addEventListener('click', processFile);
+clearButton?.addEventListener('click', reset);
+attachPreviewListeners();
+reset();
