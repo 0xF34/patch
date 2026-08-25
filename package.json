@@ -2,7 +2,7 @@
   "name": "zilem-clean-mp4-tool",
   "private": true,
   "version": "1.0.0",
-  "description": "Client-side MP4 inspector and lossless fast-start patcher.",
+  "description": "Client-side MP4 inspector and lossless fast-start patcher",
   "engines": {
     "node": "24.x"
   },
