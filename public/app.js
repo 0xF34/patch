@@ -22,6 +22,7 @@ const progressPercent = $('progressPercent');
 
 const ffmpeg = new FFmpeg();
 let ffmpegReady = false;
+let ffmpegLoading = null;
 let selectedFile = null;
 let outputUrl = null;
 let inputName = '';
@@ -29,20 +30,14 @@ let sourceUrl = null;
 let sourceIsVideo = false;
 let sourceIsAudio = false;
 let processing = false;
-let ffmpegProgressAttached = false;
 
 function setText(id, value) {
   const node = $(id);
   if (node) node.textContent = value;
 }
 
-function show(node) {
-  node?.classList.remove('hidden');
-}
-
-function hide(node) {
-  node?.classList.add('hidden');
-}
+function show(node) { node?.classList.remove('hidden'); }
+function hide(node) { node?.classList.add('hidden'); }
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) return '—';
@@ -69,16 +64,17 @@ function formatDuration(seconds) {
 function setProgress(percent, title) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   show(progressWrap);
-  if (progressBar) progressBar.style.width = `${value}%`;
-  if (progressPercent) progressPercent.textContent = `${value}%`;
-  if (progressTitle) progressTitle.textContent = title;
+  progressBar.style.width = `${value}%`;
+  setText('progressPercent', `${value}%`);
+  setText('progressTitle', title);
 }
 
 function setStep(step) {
   ['step1', 'step2', 'step3'].forEach((id, index) => {
     const node = $(id);
-    node?.classList.toggle('active', index + 1 === step);
-    node?.classList.toggle('done', index + 1 < step);
+    if (!node) return;
+    node.classList.toggle('active', index + 1 === step);
+    node.classList.toggle('done', index + 1 < step);
   });
 }
 
@@ -89,7 +85,7 @@ function safeInputName(name) {
 function extensionFor(file) {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   if (['mp3', 'wav', 'm4a', 'aac', 'ogg'].includes(ext)) return ext;
-  if (file.type.startsWith('audio/')) return 'audio';
+  if (file.type.startsWith('audio/')) return 'm4a';
   return ['mp4', 'mov', 'webm', 'mkv'].includes(ext) ? ext : 'mp4';
 }
 
@@ -107,14 +103,11 @@ function reset() {
   preview.load();
   hide(info);
   hide(previewCard);
+  hide(actions);
   hide(progressWrap);
   hide(download);
-  show(controls);
-  show(watermarkControls);
-  show(audioControls);
-  hide(actions);
-  setText('status', 'Choose your settings, then choose a file. Processing starts automatically.');
-  if (processButton) processButton.disabled = false;
+  setText('status', 'Waiting for a file.');
+  processButton.disabled = false;
 }
 
 async function readMediaMetadata(file) {
@@ -150,8 +143,8 @@ async function loadFile(file) {
   sourceIsAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name);
 
   try {
-    setProgress(2, 'Checking file');
     setStep(1);
+    setProgress(2, 'Checking file');
     setText('status', 'Reading media metadata…');
     const meta = await readMediaMetadata(file);
 
@@ -167,19 +160,18 @@ async function loadFile(file) {
     if (sourceIsVideo) {
       preview.src = sourceUrl;
       show(previewCard);
+      hide(audioControls);
     } else {
       hide(previewCard);
+      hide(watermarkControls);
+      hide(controls);
+      show(audioControls);
     }
 
     show(info);
-    show(controls);
-    show(watermarkControls);
-    show(audioControls);
-    hide(actions);
-    setText('status', 'File checked. Starting automatic processing with your current settings…');
+    show(actions);
+    setText('status', 'Starting automatic processing with your selected settings…');
 
-    // Processing begins automatically as soon as the file is checked.
-    // Set FPS, resolution, quality, watermark, and audio options BEFORE choosing the file.
     await processFile();
   } catch (error) {
     reset();
@@ -189,26 +181,40 @@ async function loadFile(file) {
 
 async function ensureFFmpeg() {
   if (ffmpegReady) return;
-  setProgress(10, 'Loading encoder');
-  setStep(1);
-  setText('status', 'Loading FFmpeg engine. The first run can take a moment…');
+  if (ffmpegLoading) return ffmpegLoading;
 
-  if (!ffmpegProgressAttached) {
+  ffmpegLoading = (async () => {
+    setProgress(10, 'Loading encoder');
+    setStep(1);
+    setText('status', 'Loading FFmpeg engine (~31 MB). Keep this page open…');
+
     ffmpeg.on('progress', ({ progress }) => {
+      if (!processing) return;
       const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
       setStep(2);
       setProgress(15 + p * 80, 'Encoding');
       setText('status', `Encoding… ${Math.round(p * 100)}%`);
     });
-    ffmpegProgressAttached = true;
-  }
 
-  const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
-  const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
-  const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
-  const workerURL = await toBlobURL(`${base}/ffmpeg-core.worker.js`, 'text/javascript');
-  await ffmpeg.load({ coreURL, wasmURL, workerURL });
-  ffmpegReady = true;
+    ffmpeg.on('log', ({ message }) => {
+      if (message) console.debug('[FFmpeg]', message);
+    });
+
+    // Single-thread @ffmpeg/core does not need a workerURL. Passing one here
+    // can leave Safari/iOS waiting for a worker that does not exist.
+    const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
+    const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
+    const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
+    await ffmpeg.load({ coreURL, wasmURL });
+    ffmpegReady = true;
+    setProgress(15, 'Encoder ready');
+  })();
+
+  try {
+    await ffmpegLoading;
+  } finally {
+    ffmpegLoading = null;
+  }
 }
 
 function buildVideoFilter(width, height) {
@@ -224,13 +230,8 @@ function buildVideoFilter(width, height) {
 
   if (resolution !== 'source') {
     const [rw, rh] = resolution.split(':').map(Number);
-    const ratio = width / Math.max(height, 1);
-    const targetRatio = rw / rh;
-    const fitW = ratio >= targetRatio ? rw : -2;
-    const fitH = ratio >= targetRatio ? -2 : rh;
-    filters.push(`scale=${fitW}:${fitH}:force_original_aspect_ratio=decrease`);
+    filters.push(`scale=${rw}:${rh}:force_original_aspect_ratio=decrease,pad=${rw}:${rh}:(ow-iw)/2:(oh-ih)/2`);
   }
-
   if (fps !== 'source') filters.push(`fps=${fps}`);
   if (brightness !== 0 || contrast !== 1) filters.push(`eq=brightness=${brightness}:contrast=${contrast}`);
   if (mirror === 'horizontal') filters.push('hflip');
@@ -270,7 +271,7 @@ async function processVideo() {
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', $('quality')?.value || '22');
   if (($('audioMode')?.value || 'keep') === 'mute') args.push('-an');
   else args.push('-c:a', 'aac', '-b:a', '160k');
-  args.push('-movflags', '+faststart', '-y', output);
+  args.push('-movflags', '+faststart', output);
 
   const code = await ffmpeg.exec(args);
   if (code !== 0) throw new Error('FFmpeg could not encode this video.');
@@ -282,7 +283,7 @@ async function processAudio() {
   const input = `input.${ext}`;
   const output = 'output.mp3';
   await ffmpeg.writeFile(input, await fetchFile(selectedFile));
-  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', '-y', output]);
+  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', output]);
   if (code !== 0) throw new Error('FFmpeg could not create the MP3.');
   return output;
 }
@@ -290,10 +291,10 @@ async function processAudio() {
 async function processFile() {
   if (!selectedFile || processing) return;
   processing = true;
-  if (processButton) processButton.disabled = true;
+  processButton.disabled = true;
   hide(download);
   setStep(1);
-  setProgress(2, 'Preparing');
+  setProgress(3, 'Preparing');
 
   try {
     await ensureFFmpeg();
@@ -306,24 +307,23 @@ async function processFile() {
     const data = await ffmpeg.readFile(output);
     const type = sourceIsVideo ? 'video/mp4' : 'audio/mpeg';
     outputUrl = URL.createObjectURL(new Blob([data], { type }));
-    const baseName = inputName.replace(/\.[^.]+$/, '');
+    const baseName = inputName.replace(/\.[^.]+$/, '') || 'media';
     download.href = outputUrl;
     download.download = `${baseName}_processed.${sourceIsVideo ? 'mp4' : 'mp3'}`;
+    download.textContent = `Download modified ${sourceIsVideo ? 'MP4' : 'MP3'} · ${formatBytes(data.byteLength)}`;
     show(download);
     setProgress(100, 'Complete');
-    setStep(4);
-    setText('status', `Done. Output: ${formatBytes(data.byteLength)}.`);
+    setStep(3);
+    setText('status', 'Finished. Your modified file is ready below.');
   } catch (error) {
     console.error(error);
     setText('status', error instanceof Error ? error.message : 'Processing failed.');
     setProgress(0, 'Failed');
-    setStep(1);
   } finally {
     processing = false;
-    if (processButton) processButton.disabled = false;
+    processButton.disabled = false;
     for (const name of [
-      'input.mp4', 'input.mov', 'input.webm', 'input.mkv', 'input.mp3',
-      'input.wav', 'input.m4a', 'input.aac', 'input.ogg', 'output.mp4', 'output.mp3'
+      'input.mp4','input.mov','input.webm','input.mkv','input.mp3','input.wav','input.m4a','input.aac','input.ogg','output.mp4','output.mp3'
     ]) {
       try { await ffmpeg.deleteFile(name); } catch {}
     }
@@ -347,13 +347,5 @@ drop.addEventListener('drop', (event) => {
   if (file) loadFile(file);
 });
 
-// Keep the settings visible before a file is selected because processing is automatic.
-show(controls);
-show(watermarkControls);
-show(audioControls);
-hide(actions);
-setText('status', 'Choose your settings first. Then choose a file — processing starts automatically.');
-
-// The button remains available as a manual retry if an automatic run fails.
-processButton?.addEventListener('click', processFile);
-clearButton?.addEventListener('click', reset);
+processButton.addEventListener('click', processFile);
+clearButton.addEventListener('click', reset);
