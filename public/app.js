@@ -29,6 +29,7 @@ let sourceUrl = null;
 let sourceIsVideo = false;
 let sourceIsAudio = false;
 let processing = false;
+let ffmpegProgressAttached = false;
 
 function setText(id, value) {
   const node = $(id);
@@ -68,9 +69,9 @@ function formatDuration(seconds) {
 function setProgress(percent, title) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   show(progressWrap);
-  progressBar.style.width = `${value}%`;
-  progressPercent.textContent = `${value}%`;
-  progressTitle.textContent = title;
+  if (progressBar) progressBar.style.width = `${value}%`;
+  if (progressPercent) progressPercent.textContent = `${value}%`;
+  if (progressTitle) progressTitle.textContent = title;
 }
 
 function setStep(step) {
@@ -89,7 +90,7 @@ function extensionFor(file) {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   if (['mp3', 'wav', 'm4a', 'aac', 'ogg'].includes(ext)) return ext;
   if (file.type.startsWith('audio/')) return 'audio';
-  return 'mp4';
+  return ['mp4', 'mov', 'webm', 'mkv'].includes(ext) ? ext : 'mp4';
 }
 
 function reset() {
@@ -104,9 +105,16 @@ function reset() {
   fileInput.value = '';
   preview.removeAttribute('src');
   preview.load();
-  hide(info); hide(previewCard); hide(controls); hide(watermarkControls); hide(audioControls); hide(actions); hide(progressWrap); hide(download);
-  setText('status', 'Waiting for a file.');
-  processButton.disabled = false;
+  hide(info);
+  hide(previewCard);
+  hide(progressWrap);
+  hide(download);
+  show(controls);
+  show(watermarkControls);
+  show(audioControls);
+  hide(actions);
+  setText('status', 'Choose your settings, then choose a file. Processing starts automatically.');
+  if (processButton) processButton.disabled = false;
 }
 
 async function readMediaMetadata(file) {
@@ -142,12 +150,12 @@ async function loadFile(file) {
   sourceIsAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name);
 
   try {
-    setProgress(3, 'Checking file');
+    setProgress(2, 'Checking file');
     setStep(1);
     setText('status', 'Reading media metadata…');
     const meta = await readMediaMetadata(file);
 
-    setProgress(10, 'File ready');
+    setProgress(8, 'File ready');
     setText('name', file.name);
     setText('size', formatBytes(file.size));
     setText('duration', formatDuration(meta.duration));
@@ -159,19 +167,20 @@ async function loadFile(file) {
     if (sourceIsVideo) {
       preview.src = sourceUrl;
       show(previewCard);
-      show(controls);
-      show(watermarkControls);
-      hide(audioControls);
     } else {
       hide(previewCard);
-      hide(controls);
-      hide(watermarkControls);
-      show(audioControls);
     }
 
     show(info);
-    show(actions);
-    setText('status', 'Ready. Choose your output settings, then process.');
+    show(controls);
+    show(watermarkControls);
+    show(audioControls);
+    hide(actions);
+    setText('status', 'File checked. Starting automatic processing with your current settings…');
+
+    // Processing begins automatically as soon as the file is checked.
+    // Set FPS, resolution, quality, watermark, and audio options BEFORE choosing the file.
+    await processFile();
   } catch (error) {
     reset();
     setText('status', error instanceof Error ? error.message : 'Could not read this file.');
@@ -180,16 +189,19 @@ async function loadFile(file) {
 
 async function ensureFFmpeg() {
   if (ffmpegReady) return;
-  setProgress(8, 'Loading encoder');
+  setProgress(10, 'Loading encoder');
   setStep(1);
-  setText('status', 'Loading FFmpeg engine. The first run is large and can take a moment…');
+  setText('status', 'Loading FFmpeg engine. The first run can take a moment…');
 
-  ffmpeg.on('progress', ({ progress }) => {
-    const p = Number.isFinite(progress) ? progress : 0;
-    setStep(2);
-    setProgress(10 + p * 82, 'Encoding');
-    setText('status', `Encoding… ${Math.round(p * 100)}%`);
-  });
+  if (!ffmpegProgressAttached) {
+    ffmpeg.on('progress', ({ progress }) => {
+      const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+      setStep(2);
+      setProgress(15 + p * 80, 'Encoding');
+      setText('status', `Encoding… ${Math.round(p * 100)}%`);
+    });
+    ffmpegProgressAttached = true;
+  }
 
   const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
   const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
@@ -246,8 +258,8 @@ function buildVideoFilter(width, height) {
 }
 
 async function processVideo() {
-  const inputExt = extensionFor(selectedFile);
-  const input = `input.${inputExt === 'audio' ? 'mp4' : inputExt}`;
+  const ext = extensionFor(selectedFile);
+  const input = `input.${ext}`;
   const output = 'output.mp4';
   await ffmpeg.writeFile(input, await fetchFile(selectedFile));
 
@@ -258,7 +270,7 @@ async function processVideo() {
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', $('quality')?.value || '22');
   if (($('audioMode')?.value || 'keep') === 'mute') args.push('-an');
   else args.push('-c:a', 'aac', '-b:a', '160k');
-  args.push('-movflags', '+faststart', output);
+  args.push('-movflags', '+faststart', '-y', output);
 
   const code = await ffmpeg.exec(args);
   if (code !== 0) throw new Error('FFmpeg could not encode this video.');
@@ -267,10 +279,10 @@ async function processVideo() {
 
 async function processAudio() {
   const ext = extensionFor(selectedFile);
-  const input = `input.${ext === 'audio' ? 'm4a' : ext}`;
+  const input = `input.${ext}`;
   const output = 'output.mp3';
   await ffmpeg.writeFile(input, await fetchFile(selectedFile));
-  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', output]);
+  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', '-y', output]);
   if (code !== 0) throw new Error('FFmpeg could not create the MP3.');
   return output;
 }
@@ -278,7 +290,7 @@ async function processAudio() {
 async function processFile() {
   if (!selectedFile || processing) return;
   processing = true;
-  processButton.disabled = true;
+  if (processButton) processButton.disabled = true;
   hide(download);
   setStep(1);
   setProgress(2, 'Preparing');
@@ -286,14 +298,14 @@ async function processFile() {
   try {
     await ensureFFmpeg();
     setStep(2);
-    setProgress(12, 'Encoding');
+    setProgress(15, 'Encoding');
     const output = sourceIsVideo ? await processVideo() : await processAudio();
 
     setStep(3);
     setProgress(97, 'Finishing');
     const data = await ffmpeg.readFile(output);
     const type = sourceIsVideo ? 'video/mp4' : 'audio/mpeg';
-    outputUrl = URL.createObjectURL(new Blob([data.buffer], { type }));
+    outputUrl = URL.createObjectURL(new Blob([data], { type }));
     const baseName = inputName.replace(/\.[^.]+$/, '');
     download.href = outputUrl;
     download.download = `${baseName}_processed.${sourceIsVideo ? 'mp4' : 'mp3'}`;
@@ -308,20 +320,13 @@ async function processFile() {
     setStep(1);
   } finally {
     processing = false;
-    processButton.disabled = false;
-    try {
-      await ffmpeg.deleteFile('input.mp4');
-      await ffmpeg.deleteFile('input.mov');
-      await ffmpeg.deleteFile('input.webm');
-      await ffmpeg.deleteFile('input.mkv');
-      await ffmpeg.deleteFile('input.mp3');
-      await ffmpeg.deleteFile('input.wav');
-      await ffmpeg.deleteFile('input.m4a');
-      await ffmpeg.deleteFile('input.aac');
-      await ffmpeg.deleteFile('input.ogg');
-      await ffmpeg.deleteFile('output.mp4');
-      await ffmpeg.deleteFile('output.mp3');
-    } catch {}
+    if (processButton) processButton.disabled = false;
+    for (const name of [
+      'input.mp4', 'input.mov', 'input.webm', 'input.mkv', 'input.mp3',
+      'input.wav', 'input.m4a', 'input.aac', 'input.ogg', 'output.mp4', 'output.mp3'
+    ]) {
+      try { await ffmpeg.deleteFile(name); } catch {}
+    }
   }
 }
 
@@ -342,5 +347,13 @@ drop.addEventListener('drop', (event) => {
   if (file) loadFile(file);
 });
 
-processButton.addEventListener('click', processFile);
-clearButton.addEventListener('click', reset);
+// Keep the settings visible before a file is selected because processing is automatic.
+show(controls);
+show(watermarkControls);
+show(audioControls);
+hide(actions);
+setText('status', 'Choose your settings first. Then choose a file — processing starts automatically.');
+
+// The button remains available as a manual retry if an automatic run fails.
+processButton?.addEventListener('click', processFile);
+clearButton?.addEventListener('click', reset);
