@@ -1,24 +1,50 @@
-const fileInput = document.querySelector('#file');
-const drop = document.querySelector('#drop');
-const info = document.querySelector('#info');
-const actions = document.querySelector('#actions');
-const patchButton = document.querySelector('#process') || document.querySelector('#patch');
-const clearButton = document.querySelector('#clear');
-const download = document.querySelector('#download');
-const status = document.querySelector('#status');
+import { FFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/+esm';
+import { fetchFile, toBlobURL } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/+esm';
 
+const $ = (id) => document.getElementById(id);
+const fileInput = $('file');
+const drop = $('drop');
+const info = $('info');
+const previewCard = $('previewCard');
+const preview = $('preview');
+const controls = $('controls');
+const watermarkControls = $('watermarkControls');
+const audioControls = $('audioControls');
+const actions = $('actions');
+const processButton = $('process');
+const clearButton = $('clear');
+const download = $('download');
+const status = $('status');
+const progressWrap = $('progressWrap');
+const progressBar = $('progress');
+const progressTitle = $('progressTitle');
+const progressPercent = $('progressPercent');
+
+const ffmpeg = new FFmpeg();
+let ffmpegReady = false;
 let selectedFile = null;
-let selectedBytes = null;
 let outputUrl = null;
-
-const get = (id) => document.getElementById(id);
+let inputName = '';
+let sourceUrl = null;
+let sourceIsVideo = false;
+let sourceIsAudio = false;
+let processing = false;
 
 function setText(id, value) {
-  const element = get(id);
-  if (element) element.textContent = value;
+  const node = $(id);
+  if (node) node.textContent = value;
+}
+
+function show(node) {
+  node?.classList.remove('hidden');
+}
+
+function hide(node) {
+  node?.classList.add('hidden');
 }
 
 function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '—';
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB'];
   let value = bytes / 1024;
@@ -30,179 +56,277 @@ function formatBytes(bytes) {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${unit}`;
 }
 
-function readU32(view, offset) {
-  return offset + 4 <= view.byteLength ? view.getUint32(offset, false) : 0;
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds)) return '—';
+  const total = Math.max(0, Math.round(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function readU16(view, offset) {
-  return offset + 2 <= view.byteLength ? view.getUint16(offset, false) : 0;
+function setProgress(percent, title) {
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  show(progressWrap);
+  progressBar.style.width = `${value}%`;
+  progressPercent.textContent = `${value}%`;
+  progressTitle.textContent = title;
 }
 
-function typeAt(bytes, offset) {
-  if (offset + 4 > bytes.length) return '';
-  return String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+function setStep(step) {
+  ['step1', 'step2', 'step3'].forEach((id, index) => {
+    const node = $(id);
+    node?.classList.toggle('active', index + 1 === step);
+    node?.classList.toggle('done', index + 1 < step);
+  });
 }
 
-function boxes(bytes, start = 0, end = bytes.length) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const result = [];
-  let offset = start;
-
-  while (offset + 8 <= end) {
-    const size32 = readU32(view, offset);
-    const type = typeAt(bytes, offset + 4);
-    let size = size32;
-    let header = 8;
-
-    if (size32 === 1) {
-      if (offset + 16 > end) break;
-      size = readU32(view, offset + 8) * 0x100000000 + readU32(view, offset + 12);
-      header = 16;
-    } else if (size32 === 0) {
-      size = end - offset;
-    }
-
-    if (size < header || offset + size > end) break;
-    result.push({ type, start: offset, size, header });
-    offset += size;
-  }
-
-  return result;
+function safeInputName(name) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
-function children(bytes, box) {
-  return boxes(bytes, box.start + box.header, box.start + box.size);
-}
-
-function child(bytes, parent, type) {
-  return children(bytes, parent).find((item) => item.type === type) || null;
-}
-
-function duration(bytes, mvhd) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const base = mvhd.start + mvhd.header;
-  const version = bytes[base];
-
-  if (version === 1) {
-    const scale = readU32(view, base + 20);
-    const value = readU32(view, base + 24) * 0x100000000 + readU32(view, base + 28);
-    return scale ? value / scale : null;
-  }
-
-  const scale = readU32(view, base + 12);
-  const value = readU32(view, base + 16);
-  return scale ? value / scale : null;
-}
-
-function inspect(bytes) {
-  const top = boxes(bytes);
-  const moov = top.find((box) => box.type === 'moov');
-  if (!moov) throw new Error('This MP4 has no readable moov atom.');
-
-  const result = { width: null, height: null, fps: null, codec: null, duration: null, moovAt: moov.start };
-  const mvhd = child(bytes, moov, 'mvhd');
-  if (mvhd) result.duration = duration(bytes, mvhd);
-
-  for (const trak of children(bytes, moov).filter((box) => box.type === 'trak')) {
-    const mdia = child(bytes, trak, 'mdia');
-    if (!mdia) continue;
-
-    const hdlr = child(bytes, mdia, 'hdlr');
-    if (hdlr && typeAt(bytes, hdlr.start + hdlr.header + 8) !== 'vide') continue;
-
-    const minf = child(bytes, mdia, 'minf');
-    const mdhd = child(bytes, mdia, 'mdhd');
-    if (!minf) continue;
-    const stbl = child(bytes, minf, 'stbl');
-    if (!stbl) continue;
-
-    const stsd = child(bytes, stbl, 'stsd');
-    const stts = child(bytes, stbl, 'stts');
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-    if (stsd) {
-      const base = stsd.start + stsd.header;
-      if (readU32(view, base + 4) > 0) {
-        const entry = base + 8;
-        result.codec = typeAt(bytes, entry + 4);
-        result.width = readU16(view, entry + 32) || null;
-        result.height = readU16(view, entry + 34) || null;
-      }
-    }
-
-    if (mdhd && stts) {
-      const mdhdBase = mdhd.start + mdhd.header;
-      const timescale = bytes[mdhdBase] === 1 ? readU32(view, mdhdBase + 20) : readU32(view, mdhdBase + 12);
-      const sttsBase = stts.start + stts.header;
-      const count = Math.min(readU32(view, sttsBase + 4), 4096);
-      let samples = 0;
-      let ticks = 0;
-
-      for (let i = 0; i < count; i++) {
-        const entry = sttsBase + 8 + i * 8;
-        const sampleCount = readU32(view, entry);
-        const sampleDelta = readU32(view, entry + 4);
-        samples += sampleCount;
-        ticks += sampleDelta * sampleCount;
-      }
-
-      if (timescale && ticks) result.fps = timescale * samples / ticks;
-    }
-
-    if (result.codec) break;
-  }
-
-  return result;
-}
-
-function codecName(codec) {
-  return ({ avc1: 'H.264', avc3: 'H.264', hvc1: 'H.265', hev1: 'H.265', av01: 'AV1' })[codec] || codec || 'Unknown';
+function extensionFor(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  if (['mp3', 'wav', 'm4a', 'aac', 'ogg'].includes(ext)) return ext;
+  if (file.type.startsWith('audio/')) return 'audio';
+  return 'mp4';
 }
 
 function reset() {
+  if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+  if (outputUrl) URL.revokeObjectURL(outputUrl);
+  sourceUrl = null;
+  outputUrl = null;
   selectedFile = null;
-  selectedBytes = null;
+  inputName = '';
+  sourceIsVideo = false;
+  sourceIsAudio = false;
   fileInput.value = '';
-  info.classList.add('hidden');
-  actions.classList.add('hidden');
-  download.classList.add('hidden');
-  download.removeAttribute('href');
-  status.textContent = 'Waiting for a file.';
-  if (outputUrl) {
-    URL.revokeObjectURL(outputUrl);
-    outputUrl = null;
-  }
+  preview.removeAttribute('src');
+  preview.load();
+  hide(info); hide(previewCard); hide(controls); hide(watermarkControls); hide(audioControls); hide(actions); hide(progressWrap); hide(download);
+  setText('status', 'Waiting for a file.');
+  processButton.disabled = false;
+}
+
+async function readMediaMetadata(file) {
+  const url = URL.createObjectURL(file);
+  const media = document.createElement(file.type.startsWith('audio/') ? 'audio' : 'video');
+  media.preload = 'metadata';
+  media.src = url;
+  media.playsInline = true;
+
+  return new Promise((resolve, reject) => {
+    media.onloadedmetadata = () => {
+      const result = {
+        duration: media.duration,
+        width: media.videoWidth || 0,
+        height: media.videoHeight || 0
+      };
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    media.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('The browser could not read this media file.'));
+    };
+  });
 }
 
 async function loadFile(file) {
-  if (!file) return;
-
+  if (!file || processing) return;
+  reset();
   selectedFile = file;
-  status.textContent = `Loading ${file.name}…`;
+  inputName = safeInputName(file.name);
+  sourceIsVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv)$/i.test(file.name);
+  sourceIsAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name);
 
   try {
-    selectedBytes = new Uint8Array(await file.arrayBuffer());
-    const meta = inspect(selectedBytes);
+    setProgress(3, 'Checking file');
+    setStep(1);
+    setText('status', 'Reading media metadata…');
+    const meta = await readMediaMetadata(file);
 
+    setProgress(10, 'File ready');
     setText('name', file.name);
     setText('size', formatBytes(file.size));
-    setText('resolution', meta.width && meta.height ? `${meta.width} × ${meta.height}` : '—');
-    setText('duration', Number.isFinite(meta.duration) ? `${Math.floor(meta.duration / 60)}:${String(Math.round(meta.duration % 60)).padStart(2, '0')}` : '—');
-    setText('fps', Number.isFinite(meta.fps) ? `${meta.fps.toFixed(3)} fps` : '—');
-    setText('codec', codecName(meta.codec));
-    setText('container', `MP4 · moov @ ${meta.moovAt.toLocaleString()}`);
+    setText('duration', formatDuration(meta.duration));
+    setText('type', sourceIsVideo ? 'VIDEO' : 'AUDIO');
+    setText('video', sourceIsVideo ? `${meta.width} × ${meta.height}` : 'None');
+    setText('audio', sourceIsAudio || sourceIsVideo ? 'Available' : 'None');
 
-    info.classList.remove('hidden');
-    actions.classList.remove('hidden');
-    status.textContent = 'Video loaded. Choose Process file to create the output.';
+    sourceUrl = URL.createObjectURL(file);
+    if (sourceIsVideo) {
+      preview.src = sourceUrl;
+      show(previewCard);
+      show(controls);
+      show(watermarkControls);
+      hide(audioControls);
+    } else {
+      hide(previewCard);
+      hide(controls);
+      hide(watermarkControls);
+      show(audioControls);
+    }
+
+    show(info);
+    show(actions);
+    setText('status', 'Ready. Choose your output settings, then process.');
   } catch (error) {
     reset();
-    status.textContent = error instanceof Error ? error.message : 'Could not read this MP4.';
+    setText('status', error instanceof Error ? error.message : 'Could not read this file.');
+  }
+}
+
+async function ensureFFmpeg() {
+  if (ffmpegReady) return;
+  setProgress(8, 'Loading encoder');
+  setStep(1);
+  setText('status', 'Loading FFmpeg engine. The first run is large and can take a moment…');
+
+  ffmpeg.on('progress', ({ progress }) => {
+    const p = Number.isFinite(progress) ? progress : 0;
+    setStep(2);
+    setProgress(10 + p * 82, 'Encoding');
+    setText('status', `Encoding… ${Math.round(p * 100)}%`);
+  });
+
+  const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';
+  const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
+  const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
+  const workerURL = await toBlobURL(`${base}/ffmpeg-core.worker.js`, 'text/javascript');
+  await ffmpeg.load({ coreURL, wasmURL, workerURL });
+  ffmpegReady = true;
+}
+
+function buildVideoFilter(width, height) {
+  const filters = [];
+  const resolution = $('resolution')?.value || 'source';
+  const fps = $('fps')?.value || 'source';
+  const brightness = Number($('brightness')?.value || 0);
+  const contrast = Number($('contrast')?.value || 1);
+  const rotation = $('rotation')?.value || '0';
+  const mirror = $('mirror')?.value || 'none';
+  const preset = $('watermarkPreset')?.value || 'none';
+  const size = Number($('watermarkSize')?.value || 12) / 100;
+
+  if (resolution !== 'source') {
+    const [rw, rh] = resolution.split(':').map(Number);
+    const ratio = width / Math.max(height, 1);
+    const targetRatio = rw / rh;
+    const fitW = ratio >= targetRatio ? rw : -2;
+    const fitH = ratio >= targetRatio ? -2 : rh;
+    filters.push(`scale=${fitW}:${fitH}:force_original_aspect_ratio=decrease`);
+  }
+
+  if (fps !== 'source') filters.push(`fps=${fps}`);
+  if (brightness !== 0 || contrast !== 1) filters.push(`eq=brightness=${brightness}:contrast=${contrast}`);
+  if (mirror === 'horizontal') filters.push('hflip');
+  if (mirror === 'vertical') filters.push('vflip');
+  if (rotation === '90') filters.push('transpose=1');
+  if (rotation === '180') filters.push('transpose=1,transpose=1');
+  if (rotation === '270') filters.push('transpose=2');
+
+  if (preset !== 'none') {
+    const w = Math.max(16, Math.round(width * size));
+    const h = Math.max(16, Math.round(height * size * 0.65));
+    const margin = Math.max(4, Math.round(Math.min(width, height) * 0.02));
+    let x = margin;
+    let y = margin;
+    if (preset.includes('right')) x = width - w - margin;
+    if (preset.includes('bottom')) y = height - h - margin;
+    if (preset === 'center') {
+      x = Math.round((width - w) / 2);
+      y = Math.round((height - h) / 2);
+    }
+    filters.push(`delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0`);
+  }
+
+  return filters.join(',');
+}
+
+async function processVideo() {
+  const inputExt = extensionFor(selectedFile);
+  const input = `input.${inputExt === 'audio' ? 'mp4' : inputExt}`;
+  const output = 'output.mp4';
+  await ffmpeg.writeFile(input, await fetchFile(selectedFile));
+
+  const meta = await readMediaMetadata(selectedFile);
+  const filter = buildVideoFilter(meta.width || 1280, meta.height || 720);
+  const args = ['-i', input];
+  if (filter) args.push('-vf', filter);
+  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', $('quality')?.value || '22');
+  if (($('audioMode')?.value || 'keep') === 'mute') args.push('-an');
+  else args.push('-c:a', 'aac', '-b:a', '160k');
+  args.push('-movflags', '+faststart', output);
+
+  const code = await ffmpeg.exec(args);
+  if (code !== 0) throw new Error('FFmpeg could not encode this video.');
+  return output;
+}
+
+async function processAudio() {
+  const ext = extensionFor(selectedFile);
+  const input = `input.${ext === 'audio' ? 'm4a' : ext}`;
+  const output = 'output.mp3';
+  await ffmpeg.writeFile(input, await fetchFile(selectedFile));
+  const code = await ffmpeg.exec(['-i', input, '-vn', '-codec:a', 'libmp3lame', '-b:a', $('bitrate')?.value || '192k', output]);
+  if (code !== 0) throw new Error('FFmpeg could not create the MP3.');
+  return output;
+}
+
+async function processFile() {
+  if (!selectedFile || processing) return;
+  processing = true;
+  processButton.disabled = true;
+  hide(download);
+  setStep(1);
+  setProgress(2, 'Preparing');
+
+  try {
+    await ensureFFmpeg();
+    setStep(2);
+    setProgress(12, 'Encoding');
+    const output = sourceIsVideo ? await processVideo() : await processAudio();
+
+    setStep(3);
+    setProgress(97, 'Finishing');
+    const data = await ffmpeg.readFile(output);
+    const type = sourceIsVideo ? 'video/mp4' : 'audio/mpeg';
+    outputUrl = URL.createObjectURL(new Blob([data.buffer], { type }));
+    const baseName = inputName.replace(/\.[^.]+$/, '');
+    download.href = outputUrl;
+    download.download = `${baseName}_processed.${sourceIsVideo ? 'mp4' : 'mp3'}`;
+    show(download);
+    setProgress(100, 'Complete');
+    setStep(4);
+    setText('status', `Done. Output: ${formatBytes(data.byteLength)}.`);
+  } catch (error) {
+    console.error(error);
+    setText('status', error instanceof Error ? error.message : 'Processing failed.');
+    setProgress(0, 'Failed');
+    setStep(1);
+  } finally {
+    processing = false;
+    processButton.disabled = false;
+    try {
+      await ffmpeg.deleteFile('input.mp4');
+      await ffmpeg.deleteFile('input.mov');
+      await ffmpeg.deleteFile('input.webm');
+      await ffmpeg.deleteFile('input.mkv');
+      await ffmpeg.deleteFile('input.mp3');
+      await ffmpeg.deleteFile('input.wav');
+      await ffmpeg.deleteFile('input.m4a');
+      await ffmpeg.deleteFile('input.aac');
+      await ffmpeg.deleteFile('input.ogg');
+      await ffmpeg.deleteFile('output.mp4');
+      await ffmpeg.deleteFile('output.mp3');
+    } catch {}
   }
 }
 
 fileInput.addEventListener('change', (event) => {
-  const file = event.target.files && event.target.files[0];
+  const file = event.target.files?.[0];
   if (file) loadFile(file);
 });
 
@@ -210,34 +334,13 @@ drop.addEventListener('dragover', (event) => {
   event.preventDefault();
   drop.classList.add('drag');
 });
-
 drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
 drop.addEventListener('drop', (event) => {
   event.preventDefault();
   drop.classList.remove('drag');
-  const file = event.dataTransfer.files && event.dataTransfer.files[0];
+  const file = event.dataTransfer.files?.[0];
   if (file) loadFile(file);
 });
 
-if (patchButton) {
-  patchButton.addEventListener('click', () => {
-    if (!selectedFile || !selectedBytes) return;
-
-    status.textContent = 'Preparing MP4…';
-    patchButton.disabled = true;
-
-    try {
-      const blob = new Blob([selectedBytes], { type: 'video/mp4' });
-      if (outputUrl) URL.revokeObjectURL(outputUrl);
-      outputUrl = URL.createObjectURL(blob);
-      download.href = outputUrl;
-      download.download = selectedFile.name.replace(/\.mp4$/i, '') + '_processed.mp4';
-      download.classList.remove('hidden');
-      status.textContent = 'Ready. Download the processed MP4 below.';
-    } finally {
-      patchButton.disabled = false;
-    }
-  });
-}
-
+processButton.addEventListener('click', processFile);
 clearButton.addEventListener('click', reset);
